@@ -4,7 +4,7 @@ output "argocd_namespace" {
 }
 
 output "mgmt_cluster_endpoint" {
-  description = "Management cluster API endpoint（來自 SSM）"
+  description = "Management Cluster API endpoint（來自 SSM）"
   value       = data.aws_ssm_parameter.api_endpoint.value
   sensitive   = true
 }

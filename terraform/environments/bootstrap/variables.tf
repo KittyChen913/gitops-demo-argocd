@@ -5,7 +5,7 @@ variable "tf_state_bucket" {
 }
 
 variable "aws_region" {
-  description = "AWS region for the S3 state bucket."
+  description = "AWS region for the S3 State Bucket."
   type        = string
   default     = "ap-southeast-1"
 }

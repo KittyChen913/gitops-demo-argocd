@@ -1,4 +1,4 @@
-# Prod Root Application（App of Apps）
+# Prod Root Application（應用程式集合）
 #
 # 用途：GitOps 入口點（生產環境）— 管理 gitops-demo-apps
 #       倉庫中 argocd/applicationsets/gitops-demo-prod.yaml 定義的 ApplicationSet。
@@ -25,11 +25,11 @@ metadata:
     # 標記此為 GitOps 的根入口點（prod），避免誤刪
     gitops-demo/role: "bootstrap-root-prod"
 spec:
-  # ── 目標叢集 ────────────────────────────────────────────────────────────────
-  # ApplicationSet 必須部署到 ArgoCD 所在的 management cluster（本地叢集），
-  # 而非 worker cluster。ApplicationSet Controller 在 management cluster 上運行，
+  # ── 目標 Cluster ────────────────────────────────────────────────────────────
+  # ApplicationSet 必須部署到 ArgoCD 所在的 Management Cluster（本地 Cluster），
+  # 而非 Worker Cluster。ApplicationSet Controller 在 Management Cluster 上運行，
   # 並由 gitops-demo-prod.yaml 中的 generators/clusterDecisionResource 決定
-  # 要將 Application 部署到哪些 worker cluster（如 lke-prod-ateam）。
+  # 要將 Application 部署到哪些 Worker Cluster（如 lke-prod-ateam）。
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

@@ -150,7 +150,7 @@ jobs:
       - name: "Checkout"
         uses: actions/checkout@v6
 
-      # ── Terraform Setup + AWS OIDC + terraform init ────────────────────────
+      # ── Terraform 設定、AWS OIDC 與 terraform init ────────────────────────
       - name: "Terraform Setup (init + AWS auth)"
         uses: ./.github/actions/tf-setup
         with:
@@ -163,15 +163,15 @@ jobs:
         run: terraform fmt -check -recursive -diff "${GITHUB_WORKSPACE}/terraform"
         continue-on-error: true   # 格式問題不 block，但會反映在 PR comment
 
-      # ── validate ───────────────────────────────────────────────────────────
+      # ── 驗證 ───────────────────────────────────────────────────────────────
       - name: "Terraform Validate"
         id: validate
         run: terraform validate -no-color
         env:
           TF_IN_AUTOMATION: "true"
 
-      # ── plan ───────────────────────────────────────────────────────────────
-      # -detailed-exitcode: 0=no-change, 1=error, 2=changes-present
+      # ── 規劃 ───────────────────────────────────────────────────────────────
+      # -detailed-exitcode：0 表示無變更、1 表示錯誤、2 表示有變更
       # Install resources 由 Argo CD 自我管理，因此不 refresh kbst live state。
       # plan artifact 儲存在 $RUNNER_TEMP（不在 working-dir）避免意外提交
       - name: "Terraform Plan"

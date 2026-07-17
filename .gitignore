@@ -15,7 +15,7 @@ kubeconfig
 secret.yaml
 secrets/
 
-# Helm
+# Helm 相關檔案
 charts/*/charts/
 charts/*/tmpcharts/
 
@@ -28,7 +28,7 @@ charts/*/tmpcharts/
 .env.*
 !.env.example
 
-# Terraform
+# Terraform 相關檔案
 .terraform/
 *.tfstate
 *.tfstate.*

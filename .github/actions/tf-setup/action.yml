@@ -3,7 +3,7 @@
 # 用途：統一處理所有 Terraform 執行前的準備步驟：
 #   1. 安裝 Terraform binary
 #   2. AWS OIDC 認證（無需 stored access key）
-#   3. terraform init（S3 remote backend）
+#   3. terraform init（S3 遠端 backend）
 #
 # 被 terraform-plan.yml 與 terraform-apply.yml 呼叫。
 # kubectl 安裝由各 caller 自行負責（apply 需要，plan 不需要）。
@@ -53,7 +53,7 @@ runs:
         aws-account-id: ${{ inputs.aws-account-id }}
         aws-region: ${{ inputs.aws-region }}
 
-    # ── 3. Terraform Init（S3 Backend）────────────────────────────────────────
+    # ── 3. Terraform 初始化（S3 Backend）──────────────────────────────────────
     # bucket / region / key / encrypt / use_lockfile 均定義於環境 root 的 backend.tf。
     # 使用 -reconfigure 確保 CI 每次都重新初始化。
     - name: Terraform Init

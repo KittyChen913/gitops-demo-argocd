@@ -4,7 +4,7 @@
 
 ## Repository 範圍
 
-- 本 repository 管理平台與 GitOps 層：安裝 Argo CD、Argo CD 自我管理、註冊 worker cluster，以及初始化根 Application。
+- 本 repository 管理平台與 GitOps 層：安裝 Argo CD、Argo CD 自我管理、註冊 Worker Cluster，以及初始化根 Application。
 - Kubernetes 叢集佈建由 `gitops-demo-cluster` 負責，不屬於本 repository。
 - Application manifest 與 ApplicationSet 由 `gitops-demo-apps` 負責，不屬於本 repository。
 - 預設分支是 `master`，不是 `main`。
@@ -15,7 +15,7 @@
 - `terraform/argocd/prod/`：prod 環境的正式 Terraform root，包含靜態 backend，並讀取 prod environment config。
 - `terraform/argocd/environments/`：dev 與 prod 各自的共用 environment config，供 Terraform 與 GitHub Actions 讀取。
 - `terraform/modules/argocd/`：dev 與 prod 共用的 Argo CD Terraform module。
-- `terraform/environments/bootstrap/`：保留 S3 state bucket 的 local-backend Terraform 定義；apply workflow 不執行此 root，也不負責建立 bucket。
+- `terraform/environments/bootstrap/`：保留 S3 State Bucket 的 local-backend Terraform 定義；apply workflow 不執行此 root，也不負責建立 bucket。
 - `argocd/install/`：安裝 Argo CD 的 Kustomize manifest。
 - `argocd/bootstrap/`：Argo CD 自我管理與根 Application manifest。
 - `.github/actions/`：本地 composite action。
@@ -28,20 +28,23 @@
 - 人工維護的程式碼、Terraform、GitHub Actions、腳本、manifest 與設定檔註解必須使用繁體中文。
 - 專有名詞、產品名稱、API、資源種類、欄位名稱、命令、路徑、識別字與無適當中文譯名的技術術語可保留英文。
 - 不得以完整英文句子撰寫註解；英文專有名詞應放在中文敘述中。
-- 自動生成檔案（例如 `.terraform.lock.hcl`）的生成器註解不得手動修改。
+- `Management Cluster`、`Worker Cluster`、`Cluster` 與 `S3 State Bucket` 均視為專有名詞，不得翻譯成中文，也不得使用其他大小寫變體。
+- 複數形式必須寫成 `Management Clusters`、`Worker Clusters` 與 `S3 State Buckets`。
+- README、docs、Terraform description、workflow 顯示文字、summary 與人工維護的執行訊息也必須遵守相同的專有名詞大小寫。
+- 自動生成檔案（例如 `.terraform.lock.hcl`）的生成器註解、shebang、lint directive 與被註解掉的程式碼不需翻譯或改寫。
 
 ## Terraform 規則
 
 - 不得在 provider block 中寫死 AWS region，必須使用 `var.aws_region`。
 - 不得將 AWS region 儲存為 GitHub variable。Workflow 應沿用 `.github/actions/configure-aws-credentials` 的預設 OIDC region `ap-southeast-1`。
-- SSM path prefix、management/worker cluster labels 與 Root Application metadata 必須定義於 `terraform/argocd/environments/<environment>.json`，不得在 Terraform root 或 workflow 重複寫死。
+- SSM path prefix、Management/Worker Cluster labels 與 Root Application metadata 必須定義於 `terraform/argocd/environments/<environment>.json`，不得在 Terraform root 或 workflow 重複寫死。
 - dev 與 prod 必須使用獨立的 environment config；修改 prod 設定不得觸發 dev apply。
 - Root Application 設定的 `name` 必須與對應 manifest 的 `metadata.name` 一致。
 - `terraform/argocd/<environment>/backend.tf` 必須包含完整靜態 S3 backend 設定：`bucket`、`region`、`key`、`encrypt` 與 `use_lockfile`。
 - dev 與 prod state key 必須分別為 `gitops-demo-infra/dev/argocd/terraform.tfstate` 與 `gitops-demo-infra/prod/argocd/terraform.tfstate`。
 - 非 bootstrap 的 Terraform init 必須直接在 `terraform/argocd/dev` 或 `terraform/argocd/prod` 執行，不得使用 `-backend-config` 動態注入 backend 值。
 - `terraform/environments/bootstrap` 必須使用 `backend "local" {}`，且不得使用 `-backend-config`。
-- S3 state bucket 必須由 repository 外部流程預先建立；本 repository 的 workflow 與 OIDC role 不得要求或使用 `s3:CreateBucket`。
+- S3 State Bucket 必須由 repository 外部流程預先建立；本 repository 的 workflow 與 OIDC role 不得要求或使用 `s3:CreateBucket`。
 - Terraform state、plan、kubeconfig 與 `terraform.tfvars` 都不得提交。
 
 ## CI/CD 與 GitHub Actions
@@ -79,7 +82,7 @@
 
 - Terraform 從 `argocd/install/` 安裝 Argo CD，並套用 `argocd/bootstrap/` 中的 bootstrap manifest。
 - 根 Application manifest 位於 `argocd/bootstrap/<team>/`。
-- Management cluster 只運行 Argo CD；worker cluster 運行應用程式 workload。
+- Management Cluster 只運行 Argo CD；Worker Cluster 運行應用程式 workload。
 - 不得將 application layer manifest 加入本 repository。
 - 除非 workflow 明確用於驗證或緊急處理，否則不得為 Terraform 已處理的 bootstrap 行為手動加入 `kubectl apply` 步驟。
 

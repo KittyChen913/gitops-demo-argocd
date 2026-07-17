@@ -1,4 +1,4 @@
-# ── S3 State Bucket ───────────────────────────────────────────────────────────
+# ── S3 State Bucket ─────────────────────────────────────────────────────────
 # prevent_destroy 防止 terraform destroy 意外刪除 state bucket，
 # 即使有 state 中的所有資源被刪除，bucket 本身也不會被刪除。
 resource "aws_s3_bucket" "tf_state" {

@@ -5,7 +5,7 @@
 # 由 terraform-apply-dev.yml 與 terraform-apply-prod.yml 在 apply 前呼叫。
 #
 # 功能：
-#   - 確認既有 S3 state bucket 可由部署帳號存取
+#   - 確認既有 S3 State Bucket 可由部署帳號存取
 #   - Bucket 名稱從 terraform/argocd/<environment>/backend.tf 讀取
 #
 # 流程：

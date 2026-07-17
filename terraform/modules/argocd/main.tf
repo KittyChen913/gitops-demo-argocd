@@ -14,7 +14,7 @@ data "aws_ssm_parameter" "token" {
   with_decryption = true
 }
 
-# ── SSM Parameter Store：worker cluster 連線資訊 ──────────────────────────────
+# ── SSM Parameter Store：Worker Cluster 連線資訊 ──────────────────────────────
 # 路徑格式：${ssm_path_prefix}/${worker_cluster_label}/<param>
 data "aws_ssm_parameter" "worker_api_endpoint" {
   name = "${var.ssm_path_prefix}/${var.worker_cluster_label}/api-endpoint"
@@ -55,7 +55,7 @@ locals {
   })
 }
 
-# ── ArgoCD Namespace ──────────────────────────────────────────────────────────
+# ── ArgoCD 命名空間 ──────────────────────────────────────────────────────────
 # 明確建立 namespace，確保在所有 kustomize 資源前就存在，
 # 避免 kbst provider 平行建立時 ConfigMap 找不到 namespace 的競態問題。
 resource "kubernetes_namespace_v1" "argocd" {
@@ -107,8 +107,8 @@ resource "kustomization_resource" "argocd_p2" {
 }
 
 # ── ArgoCD Cluster Secret（Worker Cluster 註冊）────────────────────────────────
-# 在 management cluster 的 argocd namespace 建立 Cluster Secret，
-# ArgoCD 透過此 Secret 連線管理 worker cluster。
+# 在 Management Cluster 的 argocd namespace 建立 Cluster Secret，
+# ArgoCD 透過此 Secret 連線管理 Worker Cluster。
 # 格式參考：https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#clusters
 resource "kubernetes_secret_v1" "argocd_worker_cluster" {
   metadata {
@@ -132,7 +132,7 @@ resource "kubernetes_secret_v1" "argocd_worker_cluster" {
   }
 }
 
-# ── ArgoCD Self-Managed Application Bootstrap ────────────────────────────────
+# ── ArgoCD 自我管理 Application 初始化 ──────────────────────────────────────
 # 由 Terraform provider 直接管理 Application，讓 plan 可偵測刪除與 drift。
 resource "kustomization_resource" "argocd_self_app" {
   manifest = jsonencode(yamldecode(

@@ -11,12 +11,12 @@ variable "ssm_path_prefix" {
 }
 
 variable "mgmt_cluster_label" {
-  description = "Management cluster 標籤，對應 SSM 路徑中的 cluster 名稱（例如 lke-dev-mgmt）"
+  description = "Management Cluster 標籤，對應 SSM 路徑中的 cluster 名稱（例如 lke-dev-mgmt）"
   type        = string
 }
 
 variable "worker_cluster_label" {
-  description = "Worker cluster 標籤，對應 SSM 路徑中的 cluster 名稱（例如 lke-dev-ateam）"
+  description = "Worker Cluster 標籤，對應 SSM 路徑中的 cluster 名稱（例如 lke-dev-ateam）"
   type        = string
 }
 

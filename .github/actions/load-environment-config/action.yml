@@ -11,10 +11,10 @@ outputs:
     description: "SSM Parameter Store path prefix"
     value: ${{ steps.load.outputs.ssm_path_prefix }}
   mgmt_cluster_label:
-    description: "Management cluster label"
+    description: "Management Cluster label"
     value: ${{ steps.load.outputs.mgmt_cluster_label }}
   worker_cluster_label:
-    description: "Worker cluster label"
+    description: "Worker Cluster label"
     value: ${{ steps.load.outputs.worker_cluster_label }}
   root_applications:
     description: "Root Application metadata as compact JSON"

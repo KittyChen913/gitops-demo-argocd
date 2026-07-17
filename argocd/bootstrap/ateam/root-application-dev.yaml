@@ -1,4 +1,4 @@
-# Dev Root Application（App of Apps）
+# Dev Root Application（應用程式集合）
 #
 # 用途：GitOps 入口點（開發環境）— 管理 gitops-demo-apps
 #       倉庫中 argocd/applicationsets/gitops-demo-dev.yaml 定義的 ApplicationSet。
@@ -26,11 +26,11 @@ metadata:
     # 標記此為 GitOps 的根入口點（dev），避免誤刪
     gitops-demo/role: "bootstrap-root-dev"
 spec:
-  # ── 目標叢集 ────────────────────────────────────────────────────────────────
-  # ApplicationSet 必須部署到 ArgoCD 所在的 management cluster（本地叢集），
-  # 而非 worker cluster。ApplicationSet Controller 在 management cluster 上運行，
+  # ── 目標 Cluster ────────────────────────────────────────────────────────────
+  # ApplicationSet 必須部署到 ArgoCD 所在的 Management Cluster（本地 Cluster），
+  # 而非 Worker Cluster。ApplicationSet Controller 在 Management Cluster 上運行，
   # 並由 gitops-demo-dev.yaml 中的 generators/clusterDecisionResource 決定
-  # 要將 Application 部署到哪些 worker cluster（如 lke-dev-ateam）。
+  # 要將 Application 部署到哪些 Worker Cluster（如 lke-dev-ateam）。
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
@@ -47,9 +47,9 @@ spec:
   syncPolicy:
     # automated: 啟用自動同步
     automated:
-      # prune: 當 Git 中刪除資源時，自動從叢集刪除對應資源
+      # prune: 當 Git 中刪除資源時，自動從 Cluster 刪除對應資源
       prune: true
-      # selfHeal: 當叢集狀態與 Git 不一致時，自動修復
+      # selfHeal: 當 Cluster 狀態與 Git 不一致時，自動修復
       selfHeal: true
       # allowEmpty: 當 /apps 目錄為空時不報錯（適合初始化階段）
       allowEmpty: false
@@ -67,7 +67,7 @@ spec:
         maxDuration: 3m
 
   # ── 健康檢查與比對設定 ───────────────────────────────────────────────────────
-  # ignoreDifferences 用於排除某些預期的 runtime 差異，避免誤報 OutOfSync
+  # ignoreDifferences 用於排除某些預期的執行階段差異，避免誤報 OutOfSync
   ignoreDifferences:
     - group: argoproj.io
       kind: Application

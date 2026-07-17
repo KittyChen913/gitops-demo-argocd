@@ -8,11 +8,11 @@
 #
 # 驗證項目（依序）：
 #   1. Kubernetes API 連通性
-#   2. ArgoCD pods readiness（argocd namespace 至少 4 個 Running pods）
+#   2. ArgoCD Pod 就緒狀態（argocd namespace 至少 4 個 Running Pod）
 #   3. ArgoCD API /healthz + /readyz 端點
-#   4. ArgoCD self-managed application（name: argocd）sync/health status
-#   5. Root Application bootstrap（root-application-dev / root-application-prod）
-#   6. Worker cluster 註冊驗證（argocd cluster secret 存在）
+#   4. ArgoCD 自我管理 Application（name: argocd）的同步與健康狀態
+#   5. Root Application 初始化（root-application-dev / root-application-prod）
+#   6. Worker Cluster 註冊驗證（argocd Cluster Secret 存在）
 #
 # 安全設計：
 #   - kubeconfig 透過 AWS SSM Parameter Store 動態取得（不儲存於 repo）
@@ -71,14 +71,14 @@ jobs:
         with:
           version: "v1.30.0"
 
-      # ── 從 SSM 取得叢集憑證，建立 kubeconfig ─────────────────────────────
+      # ── 從 SSM 取得 Cluster 憑證，建立 kubeconfig ────────────────────────
       # 憑證不寫入 GITHUB_WORKSPACE，使用 mktemp 並 chmod 600
       - name: "Fetch cluster credentials from SSM"
         env:
           MGMT_LABEL: ${{ steps.environment-config.outputs.mgmt_cluster_label }}
           SSM_PREFIX: ${{ steps.environment-config.outputs.ssm_path_prefix }}
         run: |
-          echo "Fetching credentials for management cluster: ${MGMT_LABEL}"
+          echo "Fetching credentials for Management Cluster: ${MGMT_LABEL}"
 
           API_ENDPOINT="$(aws ssm get-parameter \
             --name "${SSM_PREFIX}/${MGMT_LABEL}/api-endpoint" \
@@ -133,7 +133,7 @@ jobs:
           kubectl cluster-info
           echo "✅ Kubernetes API endpoint is reachable"
 
-      # ── 2. ArgoCD pods readiness ──────────────────────────────────────────
+      # ── 2. ArgoCD Pod 就緒狀態 ────────────────────────────────────────────
       - name: "2 — ArgoCD pods readiness"
         id: argocd-pods
         run: |
@@ -159,7 +159,7 @@ jobs:
           fi
           echo "✅ ${RUNNING} ArgoCD pods are Running"
 
-      # ── 3. ArgoCD API health/readyz ───────────────────────────────────────
+      # ── 3. ArgoCD API 健康與 readyz 狀態 ──────────────────────────────────
       - name: "3 — ArgoCD API health endpoints"
         id: argocd-api
         run: |
@@ -198,7 +198,7 @@ jobs:
             echo "::warning::ArgoCD /readyz returned HTTP ${READY} (may be warming up)"
           fi
 
-      # ── 4. ArgoCD self-managed application ───────────────────────────────
+      # ── 4. ArgoCD 自我管理 Application ───────────────────────────────────
       - name: "4 — ArgoCD self-managed application"
         id: argocd-self-app
         run: |
@@ -236,7 +236,7 @@ jobs:
             exit 1
           fi
 
-      # ── 5. Root Application bootstrap ────────────────────────────────────
+      # ── 5. Root Application 初始化 ───────────────────────────────────────
       - name: "5 — Root Application bootstrap"
         id: root-app
         env:
@@ -296,8 +296,8 @@ jobs:
             fi
           done
 
-      # ── 6. Worker cluster registration ───────────────────────────────────
-      - name: "6 — Worker cluster registration"
+      # ── 6. Worker Cluster 註冊 ────────────────────────────────────────────
+      - name: "6 — Worker Cluster registration"
         id: cluster-reg
         env:
           WORKER_LABEL: ${{ steps.environment-config.outputs.worker_cluster_label }}
@@ -307,21 +307,21 @@ jobs:
 
           for _ in $(seq 1 30); do
             if kubectl get secret "${EXPECTED_SECRET}" -n argocd >/dev/null 2>&1; then
-              echo "✅ Worker cluster secret '${EXPECTED_SECRET}' is registered"
+              echo "✅ Worker Cluster secret '${EXPECTED_SECRET}' is registered"
               exit 0
             fi
-            echo "Waiting for worker cluster secret '${EXPECTED_SECRET}'..."
+            echo "Waiting for Worker Cluster secret '${EXPECTED_SECRET}'..."
             sleep 10
           done
 
-          echo "::error::Expected worker cluster secret '${EXPECTED_SECRET}' was not found"
+          echo "::error::Expected Worker Cluster secret '${EXPECTED_SECRET}' was not found"
           kubectl get secrets -n argocd \
             -l "argocd.argoproj.io/secret-type=cluster" \
             -o custom-columns="NAME:.metadata.name" \
             --no-headers 2>/dev/null || true
           exit 1
 
-      # ── Cleanup ───────────────────────────────────────────────────────────
+      # ── 清理 ──────────────────────────────────────────────────────────────
       - name: "Cleanup sensitive files"
         if: always()
         run: |

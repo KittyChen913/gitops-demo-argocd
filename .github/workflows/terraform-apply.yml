@@ -15,7 +15,7 @@
 # 流程（每個 environment 獨立）：
 #   1. determine-env    ── 決定要 apply 哪個 environment
 #   2. guard-prod       ── prod apply 必須通過確認字串驗證
-#   3. bootstrap-backend ── 確認既有 S3 state bucket
+#   3. bootstrap-backend ── 確認既有 S3 State Bucket
 #   4. staged apply      ── 安裝、自管 Application、ATeam Application
 #   5. verify            ── 呼叫並等待 ArgoCD bootstrap 驗證
 #

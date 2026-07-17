@@ -1,0 +1,164 @@
+# =============================================================================
+# ArgoCD 執行階段健康檢查－手動營運驗證
+# =============================================================================
+# 此 workflow 刻意不排程 Cluster 層級監控。
+# Kubernetes API、節點與 kube-system 健康檢查由 gitops-demo-cluster 負責。
+# 此 workflow 僅連線至 Management Cluster，驗證 ArgoCD 執行狀態、Application，
+# 以及預期的 Worker Cluster 註冊狀態。
+# =============================================================================
+
+name: "ArgoCD Runtime Health Check"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [dev, prod, all]
+        default: all
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  determine-environments:
+    name: "Determine Target Environments"
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+
+    steps:
+      - name: Set Environment Matrix
+        id: set-matrix
+        env:
+          INPUT_ENV: ${{ inputs.environment }}
+        run: |
+          if [ "${INPUT_ENV}" = "all" ]; then
+            echo 'matrix={"environment":["dev","prod"]}' >> "${GITHUB_OUTPUT}"
+          else
+            echo "matrix={\"environment\":[\"${INPUT_ENV}\"]}" >> "${GITHUB_OUTPUT}"
+          fi
+
+  runtime-health:
+    name: "ArgoCD Runtime [${{ matrix.environment }}]"
+    needs: determine-environments
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.determine-environments.outputs.matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Load Environment Configuration
+        id: environment-config
+        uses: ./.github/actions/load-environment-config
+        with:
+          environment: ${{ matrix.environment }}
+
+      - name: Configure AWS Credentials
+        uses: ./.github/actions/configure-aws-credentials
+        with:
+          aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v5
+        with:
+          version: "v1.30.0"
+
+      - name: Fetch Management Cluster Credentials
+        uses: ./.github/actions/get-ssm-parameters
+        with:
+          ssm_param_path: >-
+            ${{ steps.environment-config.outputs.ssm_path_prefix }}/${{
+            steps.environment-config.outputs.mgmt_cluster_label }}
+
+      - name: Build Temporary Kubeconfig
+        env:
+          MGMT_LABEL: ${{ steps.environment-config.outputs.mgmt_cluster_label }}
+          WORKER_LABEL: ${{ steps.environment-config.outputs.worker_cluster_label }}
+        run: |
+          echo "MGMT_LABEL=${MGMT_LABEL}" >> "${GITHUB_ENV}"
+          echo "WORKER_LABEL=${WORKER_LABEL}" >> "${GITHUB_ENV}"
+
+          : "${API_ENDPOINT:?SSM parameter api-endpoint is required}"
+          : "${CA_CERT:?SSM parameter ca-cert is required}"
+          : "${TOKEN:?SSM parameter token is required}"
+
+          KUBECONFIG_FILE="$(mktemp /tmp/kubeconfig-XXXXXX)"
+          chmod 600 "${KUBECONFIG_FILE}"
+
+          cat > "${KUBECONFIG_FILE}" <<KUBECONFIG_EOF
+          apiVersion: v1
+          kind: Config
+          clusters:
+          - name: mgmt
+            cluster:
+              server: ${API_ENDPOINT}
+              certificate-authority-data: ${CA_CERT}
+          users:
+          - name: mgmt
+            user:
+              token: ${TOKEN}
+          contexts:
+          - name: mgmt
+            context:
+              cluster: mgmt
+              user: mgmt
+          current-context: mgmt
+          KUBECONFIG_EOF
+
+          echo "KUBECONFIG=${KUBECONFIG_FILE}" >> "${GITHUB_ENV}"
+          echo "KUBECONFIG_FILE=${KUBECONFIG_FILE}" >> "${GITHUB_ENV}"
+
+      - name: Run ArgoCD Runtime Health Check
+        id: health-check
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          bash scripts/argocd-runtime-health.sh \
+            "${ENVIRONMENT}" \
+            "${MGMT_LABEL}" \
+            "${WORKER_LABEL}" \
+            2>&1 | tee "${{ runner.temp }}/argocd-health-${ENVIRONMENT}.txt"
+
+      - name: Upload Runtime Health Report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: "argocd-health-${{ matrix.environment }}-${{ github.run_id }}"
+          path: "${{ runner.temp }}/argocd-health-${{ matrix.environment }}.txt"
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Cleanup Sensitive Files
+        if: always()
+        run: |
+          if [ -n "${KUBECONFIG_FILE:-}" ] && [ -f "${KUBECONFIG_FILE}" ]; then
+            shred -u "${KUBECONFIG_FILE}" 2>/dev/null || rm -f "${KUBECONFIG_FILE}"
+          fi
+
+      - name: Write Runtime Health Summary
+        if: always()
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          CHECK_OUTCOME: ${{ steps.health-check.outcome }}
+        run: |
+          REPORT="${{ runner.temp }}/argocd-health-${ENVIRONMENT}.txt"
+          {
+            echo "## ArgoCD Runtime Health — \`${ENVIRONMENT}\`"
+            echo ""
+            echo "Result: **${CHECK_OUTCOME}**"
+            echo ""
+            if [ -f "${REPORT}" ]; then
+              echo '```text'
+              cat "${REPORT}"
+              echo '```'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"

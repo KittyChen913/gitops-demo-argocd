@@ -70,31 +70,24 @@ jobs:
         with:
           version: "v1.30.0"
 
-      # ── 從 SSM 取得 Cluster 憑證，建立 kubeconfig ────────────────────────
-      # 憑證不寫入 GITHUB_WORKSPACE，使用 mktemp 並 chmod 600
+      # ── 從 SSM 取得 Cluster 憑證 ──────────────────────────────────────────
       - name: "Fetch cluster credentials from SSM"
+        uses: ./.github/actions/get-ssm-parameters
+        with:
+          ssm_param_path: >-
+            ${{ steps.environment-config.outputs.ssm_path_prefix }}/${{
+            steps.environment-config.outputs.mgmt_cluster_label }}
+
+      # 憑證不寫入 GITHUB_WORKSPACE，使用 mktemp 並 chmod 600
+      - name: "Build temporary kubeconfig"
         env:
           MGMT_LABEL: ${{ steps.environment-config.outputs.mgmt_cluster_label }}
-          SSM_PREFIX: ${{ steps.environment-config.outputs.ssm_path_prefix }}
         run: |
           echo "Fetching credentials for Management Cluster: ${MGMT_LABEL}"
 
-          API_ENDPOINT="$(aws ssm get-parameter \
-            --name "${SSM_PREFIX}/${MGMT_LABEL}/api-endpoint" \
-            --query "Parameter.Value" --output text)"
-
-          CA_CERT="$(aws ssm get-parameter \
-            --name "${SSM_PREFIX}/${MGMT_LABEL}/ca-cert" \
-            --query "Parameter.Value" --output text)"
-
-          TOKEN="$(aws ssm get-parameter \
-            --name "${SSM_PREFIX}/${MGMT_LABEL}/token" \
-            --with-decryption \
-            --query "Parameter.Value" --output text)"
-
-          # 遮罩後續所有 log output 中的敏感值
-          echo "::add-mask::${TOKEN}"
-          echo "::add-mask::${CA_CERT}"
+          : "${API_ENDPOINT:?SSM parameter api-endpoint is required}"
+          : "${CA_CERT:?SSM parameter ca-cert is required}"
+          : "${TOKEN:?SSM parameter token is required}"
 
           # 將 kubeconfig 寫入權限受限的暫存檔，且不得放在 $GITHUB_WORKSPACE
           KUBECONFIG_FILE="$(mktemp /tmp/kubeconfig-XXXXXX)"

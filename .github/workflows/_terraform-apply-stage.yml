@@ -197,6 +197,45 @@ jobs:
             exit "${APPLY_EXIT}"
           fi
 
+      # kbst install resources 需要 refresh=false；Terraform-owned endpoint
+      # 另以一般 refresh semantics 進行 reconciliation。
+      - name: "Reconcile private Argo CD endpoint"
+        if: inputs.stage == 'install'
+        env:
+          TF_IN_AUTOMATION: "true"
+        run: |
+          PLAN_FILE="${RUNNER_TEMP}/tfplan.private-endpoint"
+
+          set +e
+          terraform plan \
+            -target=module.argocd.kubernetes_service_v1.argocd_server_private \
+            -target=module.argocd.kubernetes_config_map_v1_data.argocd_cm_url \
+            -out="${PLAN_FILE}" \
+            -no-color \
+            -detailed-exitcode \
+            -input=false \
+            2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
+            | tee "${RUNNER_TEMP}/plan-output.private-endpoint.txt"
+          PLAN_EXIT="${PIPESTATUS[0]}"
+          set -e
+
+          case "${PLAN_EXIT}" in
+            0)
+              echo "Private endpoint and canonical URL are in sync."
+              ;;
+            2)
+              terraform apply \
+                -auto-approve \
+                -input=false \
+                -no-color \
+                "${PLAN_FILE}"
+              ;;
+            *)
+              echo "::error::terraform plan failed for the private endpoint"
+              exit "${PLAN_EXIT}"
+              ;;
+          esac
+
       - name: "Write stage summary"
         if: always()
         env:

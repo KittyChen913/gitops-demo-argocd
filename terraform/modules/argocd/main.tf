@@ -64,6 +64,83 @@ resource "kubernetes_namespace_v1" "argocd" {
   }
 }
 
+# 專用的 VPN-only 入口。既有 argocd-server ClusterIP Service 仍由 Argo CD
+# Kustomize installation 管理；此 companion Service 只由 Terraform 管理，
+# 避免 Argo CD 與 Terraform 協調同一個 Kubernetes object。
+resource "kubernetes_service_v1" "argocd_server_private" {
+  count = var.private_network_enabled ? 1 : 0
+
+  metadata {
+    name      = "argocd-server-private"
+    namespace = var.argocd_namespace
+
+    labels = {
+      "app.kubernetes.io/component"  = "server"
+      "app.kubernetes.io/name"       = "argocd-server-private"
+      "app.kubernetes.io/part-of"    = "argocd"
+      "app.kubernetes.io/managed-by" = "terraform"
+    }
+
+    annotations = merge(
+      {
+        "service.beta.kubernetes.io/linode-loadbalancer-default-protocol" = "tcp"
+        "service.beta.kubernetes.io/linode-loadbalancer-check-type"       = "connection"
+        "service.beta.kubernetes.io/linode-loadbalancer-check-interval"   = "5"
+        "service.beta.kubernetes.io/linode-loadbalancer-check-timeout"    = "3"
+        "service.beta.kubernetes.io/linode-loadbalancer-check-attempts"   = "2"
+        "service.beta.kubernetes.io/linode-loadbalancer-reserved-ipv4"    = var.argocd_load_balancer_ipv4
+        "service.beta.kubernetes.io/linode-loadbalancer-tags"             = "argocd,internal,vpn-only"
+        "service.beta.kubernetes.io/linode-loadbalancer-firewall-acl" = jsonencode({
+          allowList = merge(
+            { ipv4 = ["${var.openvpn_server_public_ipv4}/32"] },
+            var.openvpn_server_public_ipv6 == null ? {} : {
+              ipv6 = ["${var.openvpn_server_public_ipv6}/128"]
+            }
+          )
+        })
+      },
+      var.openvpn_server_public_ipv6 == null ? {} : {
+        "service.beta.kubernetes.io/linode-loadbalancer-enable-ipv6-ingress" = "true"
+      }
+    )
+  }
+
+  spec {
+    type                    = "LoadBalancer"
+    external_traffic_policy = "Cluster"
+
+    selector = {
+      "app.kubernetes.io/name" = "argocd-server"
+    }
+
+    port {
+      name        = "https"
+      protocol    = "TCP"
+      port        = var.argocd_https_port
+      target_port = "8080"
+    }
+  }
+
+}
+
+# 只管理既有 Argo CD ConfigMap 的 canonical URL 欄位。Kustomize installation
+# 仍擁有 ConfigMap object 與其他 data，Terraform 則透過 SSA 管理此環境欄位。
+resource "kubernetes_config_map_v1_data" "argocd_cm_url" {
+  count = var.private_network_enabled ? 1 : 0
+
+  metadata {
+    name      = "argocd-cm"
+    namespace = var.argocd_namespace
+  }
+
+  data = {
+    url = "https://${var.argocd_internal_fqdn}"
+  }
+
+  field_manager = "terraform-argocd-network"
+  force         = true
+}
+
 # ── ArgoCD 安裝（Kustomize）────────────────────────────────────────────────────
 # 透過 kbst/kustomization provider 套用 argocd/install/ 目錄。
 # priority group 0：CRDs（最優先）

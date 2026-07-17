@@ -55,6 +55,32 @@ runs:
         WORKER_CLUSTER_LABEL="$(jq -er '.worker_cluster_label' "${CONFIG_PATH}")"
 
         if ! jq -e '
+          .private_network
+          | type == "object"
+            and (.enabled | type == "boolean")
+            and (.argocd_internal_fqdn | type == "string")
+            and (.openvpn_server_public_ipv4 | type == "string")
+            and (.openvpn_server_public_ipv6 | . == null or type == "string")
+            and (.openvpn_tunnel_cidr | type == "string")
+            and (.internal_dns_server_ip | type == "string")
+            and (.argocd_load_balancer_ipv4 | type == "string")
+            and (.argocd_https_port | type == "number")
+            and (
+              (.enabled | not)
+              or (
+                (.argocd_internal_fqdn | length > 0)
+                and (.openvpn_server_public_ipv4 | length > 0)
+                and (.openvpn_tunnel_cidr | length > 0)
+                and (.internal_dns_server_ip | length > 0)
+                and (.argocd_load_balancer_ipv4 | length > 0)
+              )
+            )
+        ' "${CONFIG_PATH}" >/dev/null; then
+          echo "::error::Invalid private_network configuration: ${CONFIG_FILE}"
+          exit 1
+        fi
+
+        if ! jq -e '
           .root_applications
           | type == "object"
             and length > 0

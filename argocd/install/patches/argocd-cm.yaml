@@ -3,10 +3,6 @@ kind: ConfigMap
 metadata:
   name: argocd-cm
 data:
-  # ArgoCD Server 對外 URL（SSO callback、通知連結、UI breadcrumb 用）
-  # TODO: 替換為實際 ArgoCD ingress 域名，例如 https://argocd.your-domain.com
-  url: https://argocd.example.com
-
   # 資源追蹤方式：annotation 模式較不易與既有 label selector 衝突
   application.resourceTrackingMethod: annotation
 

@@ -2,6 +2,16 @@
   "ssm_path_prefix": "/gitops/prod/clusters",
   "mgmt_cluster_label": "lke-prod-mgmt",
   "worker_cluster_label": "lke-prod-ateam",
+  "private_network": {
+    "enabled": false,
+    "argocd_internal_fqdn": "",
+    "openvpn_server_public_ipv4": "",
+    "openvpn_server_public_ipv6": null,
+    "openvpn_tunnel_cidr": "",
+    "internal_dns_server_ip": "",
+    "argocd_load_balancer_ipv4": "",
+    "argocd_https_port": 443
+  },
   "root_applications": {
     "ateam": {
       "name": "root-application-prod",

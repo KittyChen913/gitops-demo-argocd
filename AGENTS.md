@@ -7,6 +7,8 @@
 - 本 repository 管理平台與 GitOps 層：安裝 Argo CD、Argo CD 自我管理、註冊 Worker Cluster，以及初始化根 Application。
 - Kubernetes 叢集佈建由 `gitops-demo-cluster` 負責，不屬於本 repository。
 - Application manifest 與 ApplicationSet 由 `gitops-demo-apps` 負責，不屬於本 repository。
+- frontend / backend 原始碼、Dockerfile 與映像建置 workflow 分別由 `gitops-demo-frontend`、`gitops-demo-backend` 負責，不屬於本 repository。
+- apps repository 名稱為 `gitops-demo-apps`；根 Application 與 apps repo ApplicationSet 的 `repoURL` 必須使用 `https://github.com/KittyChen913/gitops-demo-apps.git`。
 - 預設分支是 `master`，不是 `main`。
 
 ## 目錄結構
@@ -37,7 +39,7 @@
 
 - 不得在 provider block 中寫死 AWS region，必須使用 `var.aws_region`。
 - 不得將 AWS region 儲存為 GitHub variable。Workflow 應沿用 `.github/actions/configure-aws-credentials` 的預設 OIDC region `ap-southeast-1`。
-- SSM path prefix、Management/Worker Cluster labels 與 Root Application metadata 必須定義於 `terraform/argocd/environments/<environment>.json`，不得在 Terraform root 或 workflow 重複寫死。
+- SSM path prefix、Management/Worker Cluster labels、Root Application metadata 與 private network 非機密設定必須定義於 `terraform/argocd/environments/<environment>.json`，不得在 Terraform root、GitHub Variables 或 workflow 重複寫死。
 - dev 與 prod 必須使用獨立的 environment config；修改 prod 設定不得觸發 dev apply。
 - Root Application 設定的 `name` 必須與對應 manifest 的 `metadata.name` 一致。
 - `terraform/argocd/<environment>/backend.tf` 必須包含完整靜態 S3 backend 設定：`bucket`、`region`、`key`、`encrypt` 與 `use_lockfile`。
@@ -53,6 +55,7 @@
 - 不得使用、宣告或傳遞 `secrets.AWS_ACCESS_KEY_ID` 或 `secrets.AWS_SECRET_ACCESS_KEY`。
 - 必須透過 `.github/actions/configure-aws-credentials` 設定 AWS credentials；workflow 不得直接呼叫 `aws-actions/configure-aws-credentials`。
 - `AWS_ACCOUNT_ID` 必須儲存為 GitHub Repository Secret，並以 `secrets.AWS_ACCOUNT_ID` 引用。
+- GitHub Environment 只用於 dev/prod deployment protection 與 deployment history，不得保存 Terraform input、一般設定或 `AWS_ACCOUNT_ID`。
 - 需要 AWS 的 job 必須包含 `permissions: id-token: write` 與 `contents: read`。
 - 只有 job 透過 `uses: ./.github/workflows/...` 呼叫 reusable workflow 時才需要 `secrets: inherit`；composite action 不使用此設定。
 - 修改 composite action 時，必須透過 `.github/actions/**` 將變更納入相關 workflow 的 `paths` filter。
@@ -104,5 +107,5 @@
 - 修改 workflow 時，應盡可能執行 actionlint：
   `docker run --rm -v "${PWD}:/repo" --workdir /repo rhysd/actionlint:1.7.12 -color`
 - 修改腳本時，應盡可能執行 ShellCheck：
-  `docker run --rm --entrypoint shellcheck -v "${PWD}:/repo" --workdir /repo rhysd/actionlint:1.7.12 scripts/cluster-health.sh`
+  `docker run --rm --entrypoint shellcheck -v "${PWD}:/repo" --workdir /repo rhysd/actionlint:1.7.12 scripts/argocd-runtime-health.sh`
 - 修改 Terraform 時，若 dependencies 與 backend 均可使用，應在相關 Terraform root 執行 `terraform fmt` 與 `terraform validate`。

@@ -157,37 +157,43 @@ jobs:
         run: |
           echo "=== ArgoCD API Health Check ==="
 
-          # 對 argocd-server 建立 port-forward 以探測 API
-          kubectl port-forward svc/argocd-server -n argocd 8080:443 &
-          PF_PID=$!
-          echo "PF_PID=${PF_PID}" >> "${GITHUB_ENV}"
+          # 透過 Kubernetes API Server 的唯讀 Service proxy 探測 ArgoCD API
+          if ! kubectl auth can-i get services/proxy -n argocd | grep -qx "yes"; then
+            echo "::error::Current cluster credentials cannot get services/proxy in namespace argocd"
+            exit 1
+          fi
 
-          # 等待 port-forward 就緒
-          for _ in $(seq 1 10); do
-            sleep 2
-            if curl -sk --connect-timeout 2 https://localhost:8080/healthz > /dev/null 2>&1; then
-              echo "Port-forward ready after $((i * 2))s"
+          ARGOCD_PROXY="/api/v1/namespaces/argocd/services/https:argocd-server:443/proxy"
+          HEALTH="unavailable"
+          for ATTEMPT in $(seq 1 10); do
+            if kubectl get --request-timeout=5s --raw "${ARGOCD_PROXY}/healthz" > /dev/null 2>&1; then
+              HEALTH="200"
+              echo "ArgoCD API proxy ready on attempt ${ATTEMPT}"
               break
             fi
+            sleep 2
           done
 
-          HEALTH="$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:8080/healthz)"
-          READY="$(curl -sk -o /dev/null -w '%{http_code}' https://localhost:8080/readyz)"
+          if kubectl get --request-timeout=5s --raw "${ARGOCD_PROXY}/readyz" > /dev/null 2>&1; then
+            READY="200"
+          else
+            READY="unavailable"
+          fi
 
-          echo "  /healthz → HTTP ${HEALTH}"
-          echo "  /readyz  → HTTP ${READY}"
+          echo "  /healthz → ${HEALTH}"
+          echo "  /readyz  → ${READY}"
 
           if [ "${HEALTH}" = "200" ]; then
             echo "✅ ArgoCD API /healthz is healthy"
           else
-            echo "::error::ArgoCD /healthz returned HTTP ${HEALTH}"
+            echo "::error::ArgoCD /healthz is unavailable through the Kubernetes Service proxy"
             exit 1
           fi
 
           if [ "${READY}" = "200" ]; then
             echo "✅ ArgoCD API /readyz is ready"
           else
-            echo "::warning::ArgoCD /readyz returned HTTP ${READY} (may be warming up)"
+            echo "::warning::ArgoCD /readyz is unavailable (may be warming up)"
           fi
 
       # ── 4. ArgoCD 自我管理 Application ───────────────────────────────────
@@ -317,11 +323,6 @@ jobs:
       - name: "Cleanup sensitive files"
         if: always()
         run: |
-          # 停止 port-forward
-          if [ -n "${PF_PID}" ]; then
-            kill "${PF_PID}" 2>/dev/null || true
-          fi
-
           # 安全清除 kubeconfig
           if [ -n "${KUBECONFIG_FILE}" ] && [ -f "${KUBECONFIG_FILE}" ]; then
             shred -u "${KUBECONFIG_FILE}" 2>/dev/null || rm -f "${KUBECONFIG_FILE}"

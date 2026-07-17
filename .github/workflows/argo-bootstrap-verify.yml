@@ -47,7 +47,6 @@ jobs:
   verify:
     name: "Verify ArgoCD [${{ inputs.environment }}]"
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
 
     steps:
       - name: "Checkout"

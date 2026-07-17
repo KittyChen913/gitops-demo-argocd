@@ -139,9 +139,6 @@ jobs:
       matrix: ${{ fromJSON(needs.detect-environment.outputs.matrix) }}
       fail-fast: false
 
-    # GitHub Environment：隔離 dev/prod secrets，prod 可加 protection rules
-    environment: ${{ matrix.environment }}
-
     defaults:
       run:
         working-directory: terraform/argocd/${{ matrix.environment }}

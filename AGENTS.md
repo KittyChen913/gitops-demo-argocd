@@ -6,6 +6,7 @@
 
 - 本 repository 管理平台與 GitOps 層：安裝 Argo CD、Argo CD 自我管理、註冊 Worker Cluster，以及初始化根 Application。
 - Kubernetes 叢集佈建由 `gitops-demo-cluster` 負責，不屬於本 repository。
+- Shared OpenVPN建立於獨立Linode VM，由`gitops-demo-platform-access`負責；不在Kubernetes Cluster內建立，本repository也不取得其producer或BASE configuration ownership。
 - Application manifest 與 ApplicationSet 由 `gitops-demo-apps` 負責，不屬於本 repository。
 - frontend / backend 原始碼、Dockerfile 與映像建置 workflow 分別由 `gitops-demo-frontend`、`gitops-demo-backend` 負責，不屬於本 repository。
 - apps repository 名稱為 `gitops-demo-apps`；根 Application 與 apps repo ApplicationSet 的 `repoURL` 必須使用 `https://github.com/KittyChen913/gitops-demo-apps.git`。
@@ -17,7 +18,6 @@
 - `terraform/argocd/prod/`：prod 環境的正式 Terraform root，包含靜態 backend，並讀取 prod environment config。
 - `terraform/argocd/environments/`：dev 與 prod 各自的共用 environment config，供 Terraform 與 GitHub Actions 讀取。
 - `terraform/modules/argocd/`：dev 與 prod 共用的 Argo CD Terraform module。
-- `terraform/environments/bootstrap/`：保留 S3 State Bucket 的 local-backend Terraform 定義；apply workflow 不執行此 root，也不負責建立 bucket。
 - `argocd/install/`：安裝 Argo CD 的 Kustomize manifest。
 - `argocd/bootstrap/`：Argo CD 自我管理與根 Application manifest。
 - `.github/actions/`：本地 composite action。
@@ -44,8 +44,7 @@
 - Root Application 設定的 `name` 必須與對應 manifest 的 `metadata.name` 一致。
 - `terraform/argocd/<environment>/backend.tf` 必須包含完整靜態 S3 backend 設定：`bucket`、`region`、`key`、`encrypt` 與 `use_lockfile`。
 - dev 與 prod state key 必須分別為 `gitops-demo-infra/dev/argocd/terraform.tfstate` 與 `gitops-demo-infra/prod/argocd/terraform.tfstate`。
-- 非 bootstrap 的 Terraform init 必須直接在 `terraform/argocd/dev` 或 `terraform/argocd/prod` 執行，不得使用 `-backend-config` 動態注入 backend 值。
-- `terraform/environments/bootstrap` 必須使用 `backend "local" {}`，且不得使用 `-backend-config`。
+- Terraform init 必須直接在 `terraform/argocd/dev` 或 `terraform/argocd/prod` 執行，不得使用 `-backend-config` 動態注入 backend 值。
 - S3 State Bucket 必須由 repository 外部流程預先建立；本 repository 的 workflow 與 OIDC role 不得要求或使用 `s3:CreateBucket`。
 - Terraform state、plan、kubeconfig 與 `terraform.tfvars` 都不得提交。
 
@@ -68,10 +67,12 @@
 - `terraform-apply-dev.yml` 會在 push 至 `master` 或手動觸發時部署 dev。
 - `terraform-apply-prod.yml` 會從 commit 可追溯至 `master` 的 SemVer tag 部署 prod；prod 必須依賴 GitHub Environment 核准。
 - `terraform-apply.yml` 僅供手動 override 使用。
-- `_bootstrap-backend.yml` 只能確認既有 S3 backend bucket 的 ownership/access，並冪等校正 versioning、encryption 與 public access block；不得建立 bucket，也不得使用 GitHub Actions cache 或 Terraform import。
-- Apply workflow 必須將部署分成依序執行的四個 job：驗證 S3 backend、安裝 Argo CD、註冊 Argo CD self-managed Application、註冊 ATeam Root Application。
+- 本repository不保留backend bootstrap workflow，也不建立、驗證或校正S3 State Bucket；bucket lifecycle與安全設定由repository外部owner負責。
+- Apply workflow 必須將部署分成依序執行的三個 Terraform job：安裝 Argo CD、註冊 Argo CD self-managed Application、註冊 ATeam Root Application。
 - 三個 Argo CD Terraform job 必須使用相同環境的遠端 state，並透過 `_terraform-apply-stage.yml` 執行對應的 targeted plan/apply。
 - 僅修改文件時，不應觸發部署 workflow。
+
+跨Repository從零部署順序固定為：Cluster foundation → Platform Access → Cluster worker firewall convergence → Infra / Argo CD → User Provisioning。
 
 ## Workflow 安全規則
 

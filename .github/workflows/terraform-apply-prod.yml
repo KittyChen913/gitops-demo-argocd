@@ -137,19 +137,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Job 2：Bootstrap S3 Backend（確保 state bucket 存在）
-  # tag 驗證過後才執行，避免無效 tag 浪費資源
-  # ────────────────────────────────────────────────────────────────────────────
-  bootstrap-backend:
-    name: "1. Verify S3 Backend [prod]"
-    needs: validate-tag
-    uses: ./.github/workflows/_bootstrap-backend.yml
-    with:
-      environment: prod
-    secrets: inherit
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # Jobs 3-5：分階段執行 prod Terraform Apply
+  # Jobs 2-4：分階段執行 prod Terraform Apply
   #
   # 此 job 使用 GitHub Environment "prod"，執行前 GitHub 會：
   #   1. 檢查 required reviewer 設定（必須在 UI 設定，否則此為安全漏洞）
@@ -162,8 +150,8 @@ jobs:
   #   ✅ 部署分支 → 符合 v* 的 Tag
   # ────────────────────────────────────────────────────────────────────────────
   install-argocd:
-    name: "2. Install Argo CD [prod] — ${{ needs.validate-tag.outputs.version }}"
-    needs: [validate-tag, bootstrap-backend]
+    name: "1. Install Argo CD [prod] — ${{ needs.validate-tag.outputs.version }}"
+    needs: validate-tag
     uses: ./.github/workflows/_terraform-apply-stage.yml
     with:
       environment: prod
@@ -171,7 +159,7 @@ jobs:
     secrets: inherit
 
   register-argocd-application:
-    name: "3. Register Argo CD Application [prod]"
+    name: "2. Register Argo CD Application [prod]"
     needs: install-argocd
     uses: ./.github/workflows/_terraform-apply-stage.yml
     with:
@@ -180,7 +168,7 @@ jobs:
     secrets: inherit
 
   register-ateam-application:
-    name: "4. Register ATeam Application [prod]"
+    name: "3. Register ATeam Application [prod]"
     needs: register-argocd-application
     uses: ./.github/workflows/_terraform-apply-stage.yml
     with:

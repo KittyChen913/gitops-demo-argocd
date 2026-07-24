@@ -57,6 +57,22 @@ jobs:
           environment: ${{ inputs.environment }}
           aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
 
+      - name: "Load Linode provider material"
+        # Multiple later Terraform plan/apply steps require the provider-native
+        # LINODE_TOKEN variable. Keep only this exact Secret in the ephemeral job.
+        shell: bash
+        run: |
+          set -euo pipefail
+          linode_token="$(aws ssm get-parameter \
+            --name /gitops/shared/LINODE_TOKEN \
+            --with-decryption \
+            --query Parameter.Value \
+            --output text)"
+          test -n "${linode_token}"
+          echo "::add-mask::${linode_token}"
+          printf 'LINODE_TOKEN=%s\n' "${linode_token}" >> "${GITHUB_ENV}"
+          unset linode_token
+
       - name: "Settle Argo CD install dependencies"
         id: install-prerequisites
         if: inputs.stage == 'install'
@@ -208,8 +224,10 @@ jobs:
 
           set +e
           terraform plan \
+            -target=module.argocd.linode_networking_ip.argocd_private \
             -target=module.argocd.kubernetes_service_v1.argocd_server_private \
-            -target=module.argocd.kubernetes_config_map_v1_data.argocd_cm_url \
+            -target=module.argocd.aws_ssm_parameter.argocd_endpoint_ip \
+            -target=module.argocd.aws_ssm_parameter.argocd_endpoint_hostname \
             -out="${PLAN_FILE}" \
             -no-color \
             -detailed-exitcode \
@@ -224,6 +242,12 @@ jobs:
               echo "Private endpoint and canonical URL are in sync."
               ;;
             2)
+              terraform show -json "${PLAN_FILE}" \
+                | jq -e 'all(.resource_changes[]?; (.change.actions | index("delete") | not))' \
+                  >/dev/null || {
+                    echo "::error::Private endpoint plan contains delete or replacement"
+                    exit 1
+                  }
               terraform apply \
                 -auto-approve \
                 -input=false \
@@ -235,6 +259,11 @@ jobs:
               exit "${PLAN_EXIT}"
               ;;
           esac
+
+      - name: "Clear Linode provider material"
+        if: always()
+        shell: bash
+        run: printf 'LINODE_TOKEN=\n' >> "${GITHUB_ENV}"
 
       - name: "Write stage summary"
         if: always()

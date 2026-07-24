@@ -158,7 +158,6 @@ jobs:
       - name: "Terraform Format Check"
         id: fmt
         run: terraform fmt -check -recursive -diff "${GITHUB_WORKSPACE}/terraform"
-        continue-on-error: true   # 格式問題不 block，但會反映在 PR comment
 
       # ── 驗證 ───────────────────────────────────────────────────────────────
       - name: "Terraform Validate"
@@ -177,8 +176,17 @@ jobs:
           TF_IN_AUTOMATION: "true"
           ENVIRONMENT: ${{ matrix.environment }}
         run: |
+          set -euo pipefail
+          linode_token="$(aws ssm get-parameter \
+            --name /gitops/shared/LINODE_TOKEN \
+            --with-decryption \
+            --query Parameter.Value \
+            --output text)"
+          test -n "${linode_token}"
+          echo "::add-mask::${linode_token}"
+
           set +e
-          terraform plan \
+          LINODE_TOKEN="${linode_token}" terraform plan \
             -refresh=false \
             -out="${{ runner.temp }}/tfplan.${ENVIRONMENT}" \
             -no-color \
@@ -187,12 +195,31 @@ jobs:
             2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
             | tee "${{ runner.temp }}/plan_output.txt"
           PLAN_EXIT="${PIPESTATUS[0]}"
+          set -e
+          unset linode_token
           echo "exitcode=${PLAN_EXIT}" >> "${GITHUB_OUTPUT}"
 
           if [ "${PLAN_EXIT}" -eq 1 ]; then
             echo "::error::terraform plan failed with exit code 1"
             exit 1
           fi
+
+      - name: "Reject private endpoint delete or replacement"
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          terraform show -json "${RUNNER_TEMP}/tfplan.${ENVIRONMENT}" \
+            | jq -e '
+                all(
+                  .resource_changes[]?
+                  | select(.address | test("module\\.argocd\\.(linode_networking_ip\\.argocd_private|kubernetes_service_v1\\.argocd_server_private|aws_ssm_parameter\\.argocd_endpoint_)"));
+                  (.change.actions | index("delete") | not)
+                )
+              ' >/dev/null || {
+                echo "::error::Private endpoint plan contains delete or replacement"
+                exit 1
+              }
 
       # ── 上傳 plan artifact（僅在有變更時上傳）─────────────────────────────
       # artifact 供審閱與除錯保留；apply workflows 會在部署前重新產生 plan

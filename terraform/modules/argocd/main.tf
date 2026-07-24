@@ -29,9 +29,40 @@ data "aws_ssm_parameter" "worker_token" {
   with_decryption = true
 }
 
+# ── Platform Access跨Repository hand-off ───────────────────────────────────
+# 只讀取精確parameter名稱；不讀取另一個Repository的Terraform state。
+data "aws_ssm_parameter" "base_domain" {
+  count = var.private_network_enabled ? 1 : 0
+  name  = var.base_domain_parameter_name
+}
+
+data "aws_ssm_parameter" "vpn_public_egress_ip" {
+  count = var.private_network_enabled ? 1 : 0
+  name  = var.vpn_public_egress_ip_parameter_name
+}
+
 # ── Management Cluster kubeconfig（供 kustomization provider 使用）────────────
 locals {
   manifest_root = abspath("${path.module}/../../../argocd")
+
+  base_domain = var.private_network_enabled ? trimspace(data.aws_ssm_parameter.base_domain[0].value) : ""
+  argocd_internal_fqdn = var.private_network_enabled ? (
+    var.base_domain_parameter_name != "" ?
+    "argocd.${var.deployment_environment}.internal.${local.base_domain}" :
+    var.argocd_internal_fqdn
+  ) : ""
+  vpn_public_egress_ip = var.private_network_enabled ? (
+    var.vpn_public_egress_ip_parameter_name != "" ?
+    trimspace(data.aws_ssm_parameter.vpn_public_egress_ip[0].value) :
+    var.openvpn_server_public_ipv4
+  ) : ""
+
+  argocd_self_app_manifest = var.private_network_enabled ? templatefile(
+    "${local.manifest_root}/bootstrap/argocd-app-${var.deployment_environment}.yaml.tftpl",
+    {
+      argocd_internal_fqdn = local.argocd_internal_fqdn
+    }
+  ) : file("${local.manifest_root}/bootstrap/argocd-app.yaml")
 
   mgmt_kubeconfig_yaml = yamlencode({
     apiVersion = "v1"
@@ -64,6 +95,21 @@ resource "kubernetes_namespace_v1" "argocd" {
   }
 }
 
+# Dev／Prod各自state擁有一個專用Reserved IPv4。CCM只負責把該位址綁到
+# companion Service所建立的NodeBalancer，不從versioned config複製public IP。
+resource "linode_networking_ip" "argocd_private" {
+  count = var.private_network_enabled ? 1 : 0
+
+  type     = "ipv4"
+  public   = true
+  reserved = true
+  region   = var.linode_region
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 # 專用的 VPN-only 入口。既有 argocd-server ClusterIP Service 仍由 Argo CD
 # Kustomize installation 管理；此 companion Service 只由 Terraform 管理，
 # 避免 Argo CD 與 Terraform 協調同一個 Kubernetes object。
@@ -88,19 +134,13 @@ resource "kubernetes_service_v1" "argocd_server_private" {
         "service.beta.kubernetes.io/linode-loadbalancer-check-interval"   = "5"
         "service.beta.kubernetes.io/linode-loadbalancer-check-timeout"    = "3"
         "service.beta.kubernetes.io/linode-loadbalancer-check-attempts"   = "2"
-        "service.beta.kubernetes.io/linode-loadbalancer-reserved-ipv4"    = var.argocd_load_balancer_ipv4
+        "service.beta.kubernetes.io/linode-loadbalancer-reserved-ipv4"    = linode_networking_ip.argocd_private[0].address
         "service.beta.kubernetes.io/linode-loadbalancer-tags"             = "argocd,internal,vpn-only"
         "service.beta.kubernetes.io/linode-loadbalancer-firewall-acl" = jsonencode({
-          allowList = merge(
-            { ipv4 = ["${var.openvpn_server_public_ipv4}/32"] },
-            var.openvpn_server_public_ipv6 == null ? {} : {
-              ipv6 = ["${var.openvpn_server_public_ipv6}/128"]
-            }
-          )
+          allowList = {
+            ipv4 = ["${local.vpn_public_egress_ip}/32"]
+          }
         })
-      },
-      var.openvpn_server_public_ipv6 == null ? {} : {
-        "service.beta.kubernetes.io/linode-loadbalancer-enable-ipv6-ingress" = "true"
       }
     )
   }
@@ -121,24 +161,45 @@ resource "kubernetes_service_v1" "argocd_server_private" {
     }
   }
 
+  lifecycle {
+    prevent_destroy = true
+
+    precondition {
+      condition = (
+        can(cidrnetmask("${local.vpn_public_egress_ip}/32")) &&
+        can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", local.argocd_internal_fqdn)) &&
+        var.argocd_https_port == 443 &&
+        var.openvpn_server_public_ipv6 == null
+      )
+      error_message = "Private endpoint需要有效的VPN egress /32、小寫internal FQDN、TCP/443且不得啟用IPv6 ingress。"
+    }
+  }
 }
 
-# 只管理既有 Argo CD ConfigMap 的 canonical URL 欄位。Kustomize installation
-# 仍擁有 ConfigMap object 與其他 data，Terraform 則透過 SSA 管理此環境欄位。
-resource "kubernetes_config_map_v1_data" "argocd_cm_url" {
+# Endpoint publication是非敏感跨Repository介面。Platform Access只讀取這兩個
+# parameter，不讀infra state；prevent_destroy避免停用feature gate時默默刪除contract。
+resource "aws_ssm_parameter" "argocd_endpoint_ip" {
   count = var.private_network_enabled ? 1 : 0
 
-  metadata {
-    name      = "argocd-cm"
-    namespace = var.argocd_namespace
-  }
+  name  = var.endpoint_ip_parameter_name
+  type  = "String"
+  value = linode_networking_ip.argocd_private[0].address
 
-  data = {
-    url = "https://${var.argocd_internal_fqdn}"
+  lifecycle {
+    prevent_destroy = true
   }
+}
 
-  field_manager = "terraform-argocd-network"
-  force         = true
+resource "aws_ssm_parameter" "argocd_endpoint_hostname" {
+  count = var.private_network_enabled ? 1 : 0
+
+  name  = var.endpoint_hostname_parameter_name
+  type  = "String"
+  value = local.argocd_internal_fqdn
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # ── ArgoCD 安裝（Kustomize）────────────────────────────────────────────────────
@@ -212,9 +273,7 @@ resource "kubernetes_secret_v1" "argocd_worker_cluster" {
 # ── ArgoCD 自我管理 Application 初始化 ──────────────────────────────────────
 # 由 Terraform provider 直接管理 Application，讓 plan 可偵測刪除與 drift。
 resource "kustomization_resource" "argocd_self_app" {
-  manifest = jsonencode(yamldecode(
-    file("${local.manifest_root}/bootstrap/argocd-app.yaml")
-  ))
+  manifest = jsonencode(yamldecode(local.argocd_self_app_manifest))
 }
 
 # ── Root Application Bootstrap（環境入口點）────────────────────────────────────

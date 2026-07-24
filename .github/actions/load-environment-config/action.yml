@@ -54,25 +54,23 @@ runs:
         MGMT_CLUSTER_LABEL="$(jq -er '.mgmt_cluster_label' "${CONFIG_PATH}")"
         WORKER_CLUSTER_LABEL="$(jq -er '.worker_cluster_label' "${CONFIG_PATH}")"
 
-        if ! jq -e '
+        if ! jq -e --arg environment "${TARGET_ENVIRONMENT}" '
           .private_network
           | type == "object"
             and (.enabled | type == "boolean")
-            and (.argocd_internal_fqdn | type == "string")
-            and (.openvpn_server_public_ipv4 | type == "string")
-            and (.openvpn_server_public_ipv6 | . == null or type == "string")
-            and (.openvpn_tunnel_cidr | type == "string")
-            and (.internal_dns_server_ip | type == "string")
-            and (.argocd_load_balancer_ipv4 | type == "string")
             and (.argocd_https_port | type == "number")
             and (
               (.enabled | not)
               or (
-                (.argocd_internal_fqdn | length > 0)
-                and (.openvpn_server_public_ipv4 | length > 0)
-                and (.openvpn_tunnel_cidr | length > 0)
-                and (.internal_dns_server_ip | length > 0)
-                and (.argocd_load_balancer_ipv4 | length > 0)
+                (.environment == $environment)
+                and (.linode_region | type == "string" and test("^[a-z]{2}-[a-z]+$"))
+                and (.base_domain_parameter_name == "/gitops/platform-access/network/BASE_DOMAIN")
+                and (.vpn_public_egress_ip_parameter_name == "/gitops/platform-access/network/VPN_PUBLIC_EGRESS_IP")
+                and (.endpoint_ip_parameter_name == ("/gitops/" + $environment + "/platform/argocd/ENDPOINT_IP"))
+                and (.endpoint_hostname_parameter_name == ("/gitops/" + $environment + "/platform/argocd/ENDPOINT_HOSTNAME"))
+                and (.openvpn_server_public_ipv6 == null)
+                and (.argocd_https_port == 443)
+                and (.argocd_tls_secret_name == "argocd-server-tls")
               )
             )
         ' "${CONFIG_PATH}" >/dev/null; then

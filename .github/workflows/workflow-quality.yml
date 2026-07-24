@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+env:
+  KUSTOMIZE_VERSION: "5.8.1"
+  KUSTOMIZE_LINUX_AMD64_SHA256: "029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d"
+
 concurrency:
   group: workflow-quality-${{ github.ref }}
   cancel-in-progress: true
@@ -26,6 +30,61 @@ jobs:
         uses: docker://rhysd/actionlint:1.7.12
         with:
           args: -color
+
+  kustomize:
+    name: "Validate Kustomize Contracts"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v6
+
+      - name: "Install pinned Kustomize"
+        id: kustomize
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/kustomize.tar.gz"
+          binary="${RUNNER_TEMP}/kustomize"
+          release_url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+
+          curl \
+            --fail \
+            --location \
+            --proto '=https' \
+            --silent \
+            --show-error \
+            --tlsv1.2 \
+            "${release_url}" \
+            --output "${archive}"
+          printf '%s  %s\n' "${KUSTOMIZE_LINUX_AMD64_SHA256}" "${archive}" \
+            | sha256sum --check -
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}" kustomize
+          chmod 0755 "${binary}"
+          printf 'binary=%s\n' "${binary}" >> "${GITHUB_OUTPUT}"
+
+      - name: "Build Argo CD installation"
+        env:
+          KUSTOMIZE_BINARY: ${{ steps.kustomize.outputs.binary }}
+        run: |
+          set -euo pipefail
+          "${KUSTOMIZE_BINARY}" build argocd/install >/dev/null
+
+      - name: "Validate environment templates"
+        env:
+          KUSTOMIZE_BINARY: ${{ steps.kustomize.outputs.binary }}
+        run: |
+          set -euo pipefail
+          for environment in dev prod; do
+            validation_root="${RUNNER_TEMP}/argocd-template-${environment}"
+            mkdir -p "${validation_root}"
+            sed \
+              "s|\${argocd_internal_fqdn}|argocd.${environment}.internal.example.invalid|g" \
+              "argocd/bootstrap/argocd-app-${environment}.yaml.tftpl" \
+              > "${validation_root}/application.yaml"
+            printf 'resources:\n  - application.yaml\n' \
+              > "${validation_root}/kustomization.yaml"
+            "${KUSTOMIZE_BINARY}" build "${validation_root}" >/dev/null
+          done
 
   shellcheck:
     name: "Lint Shell Scripts"

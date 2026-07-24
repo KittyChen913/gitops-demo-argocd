@@ -41,14 +41,84 @@ variable "private_network_enabled" {
   default     = false
 }
 
+variable "deployment_environment" {
+  description = "Private endpoint所屬環境；只允許Dev或Prod。"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.private_network_enabled || contains(["dev", "prod"], var.deployment_environment)
+    error_message = "啟用private network時，deployment_environment必須是dev或prod。"
+  }
+}
+
+variable "linode_region" {
+  description = "Reserved IPv4與Management Cluster所在的Linode region。"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.private_network_enabled || can(regex("^[a-z]{2}-[a-z]+$", var.linode_region))
+    error_message = "啟用private network時，linode_region必須是有效的Linode region識別字。"
+  }
+}
+
+variable "base_domain_parameter_name" {
+  description = "Platform Access發布Internal DNS BASE_DOMAIN的精確SSM parameter名稱。"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.private_network_enabled || can(regex("^/gitops/platform-access/network/BASE_DOMAIN$", var.base_domain_parameter_name))
+    error_message = "BASE_DOMAIN必須由核准的Platform Access SSM path讀取。"
+  }
+}
+
+variable "vpn_public_egress_ip_parameter_name" {
+  description = "Platform Access發布固定VPN public egress IPv4的精確SSM parameter名稱。"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.private_network_enabled || can(regex("^/gitops/platform-access/network/VPN_PUBLIC_EGRESS_IP$", var.vpn_public_egress_ip_parameter_name))
+    error_message = "VPN egress必須由核准的Platform Access SSM path讀取。"
+  }
+}
+
+variable "endpoint_ip_parameter_name" {
+  description = "Infra發布Argo CD private endpoint IPv4的精確SSM parameter名稱。"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.private_network_enabled || var.endpoint_ip_parameter_name == "/gitops/${var.deployment_environment}/platform/argocd/ENDPOINT_IP"
+    error_message = "Endpoint IP parameter必須與deployment_environment一致。"
+  }
+}
+
+variable "endpoint_hostname_parameter_name" {
+  description = "Infra發布Argo CD private endpoint hostname的精確SSM parameter名稱。"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = !var.private_network_enabled || var.endpoint_hostname_parameter_name == "/gitops/${var.deployment_environment}/platform/argocd/ENDPOINT_HOSTNAME"
+    error_message = "Endpoint hostname parameter必須與deployment_environment一致。"
+  }
+}
+
 variable "argocd_internal_fqdn" {
   description = "VPN 用戶端連線 Argo CD UI 使用的內部 FQDN。"
   type        = string
   default     = ""
 
   validation {
-    condition     = !var.private_network_enabled || can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", var.argocd_internal_fqdn))
-    error_message = "啟用 private network 時，argocd_internal_fqdn 必須是小寫 FQDN。"
+    condition = (
+      !var.private_network_enabled ||
+      var.base_domain_parameter_name != "" ||
+      can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", var.argocd_internal_fqdn))
+    )
+    error_message = "啟用private network時，必須提供BASE_DOMAIN SSM path或有效的小寫FQDN。"
   }
 }
 
@@ -58,8 +128,12 @@ variable "openvpn_server_public_ipv4" {
   default     = ""
 
   validation {
-    condition     = !var.private_network_enabled || can(cidrnetmask("${var.openvpn_server_public_ipv4}/32"))
-    error_message = "啟用 private network 時，openvpn_server_public_ipv4 必須是未帶 CIDR suffix 的 IPv4。"
+    condition = (
+      !var.private_network_enabled ||
+      var.vpn_public_egress_ip_parameter_name != "" ||
+      can(cidrnetmask("${var.openvpn_server_public_ipv4}/32"))
+    )
+    error_message = "啟用private network時，必須提供VPN egress SSM path或未帶CIDR suffix的IPv4。"
   }
 }
 
@@ -69,8 +143,11 @@ variable "openvpn_server_public_ipv6" {
   default     = null
 
   validation {
-    condition     = var.openvpn_server_public_ipv6 == null ? true : can(cidrhost("${var.openvpn_server_public_ipv6}/128", 0))
-    error_message = "openvpn_server_public_ipv6 必須是 null 或未帶 CIDR suffix 的 IPv6。"
+    condition = (
+      var.openvpn_server_public_ipv6 == null &&
+      (!var.private_network_enabled || var.openvpn_server_public_ipv6 == null)
+    )
+    error_message = "Private endpoint不啟用IPv6 ingress；openvpn_server_public_ipv6必須是null。"
   }
 }
 
@@ -80,8 +157,8 @@ variable "openvpn_tunnel_cidr" {
   default     = ""
 
   validation {
-    condition     = !var.private_network_enabled || can(cidrnetmask(var.openvpn_tunnel_cidr))
-    error_message = "啟用 private network 時，openvpn_tunnel_cidr 必須是有效的 IPv4 CIDR。"
+    condition     = var.openvpn_tunnel_cidr == "" || can(cidrnetmask(var.openvpn_tunnel_cidr))
+    error_message = "openvpn_tunnel_cidr必須為空或有效的IPv4 CIDR。"
   }
 }
 
@@ -91,8 +168,8 @@ variable "internal_dns_server_ip" {
   default     = ""
 
   validation {
-    condition     = !var.private_network_enabled || can(cidrnetmask("${var.internal_dns_server_ip}/32"))
-    error_message = "啟用 private network 時，internal_dns_server_ip 必須是未帶 CIDR suffix 的 IPv4。"
+    condition     = var.internal_dns_server_ip == "" || can(cidrnetmask("${var.internal_dns_server_ip}/32"))
+    error_message = "internal_dns_server_ip必須為空或未帶CIDR suffix的IPv4。"
   }
 }
 
@@ -102,8 +179,8 @@ variable "argocd_load_balancer_ipv4" {
   default     = ""
 
   validation {
-    condition     = !var.private_network_enabled || can(cidrnetmask("${var.argocd_load_balancer_ipv4}/32"))
-    error_message = "啟用 private network 時，argocd_load_balancer_ipv4 必須是未帶 CIDR suffix 的 IPv4。"
+    condition     = var.argocd_load_balancer_ipv4 == "" || can(cidrnetmask("${var.argocd_load_balancer_ipv4}/32"))
+    error_message = "argocd_load_balancer_ipv4必須為空或未帶CIDR suffix的IPv4。"
   }
 }
 
@@ -113,8 +190,19 @@ variable "argocd_https_port" {
   default     = 443
 
   validation {
-    condition     = var.argocd_https_port >= 1 && var.argocd_https_port <= 65535
-    error_message = "argocd_https_port 必須介於 1 與 65535。"
+    condition     = !var.private_network_enabled || var.argocd_https_port == 443
+    error_message = "VPN-only Argo CD private endpoint只允許TCP/443。"
+  }
+}
+
+variable "argocd_tls_secret_name" {
+  description = "Argo CD server Pod終止TLS所使用的既有Secret reference。"
+  type        = string
+  default     = "argocd-server-tls"
+
+  validation {
+    condition     = !var.private_network_enabled || var.argocd_tls_secret_name == "argocd-server-tls"
+    error_message = "Private endpoint必須沿用argocd-server-tls，不得複製TLS private key。"
   }
 }
 

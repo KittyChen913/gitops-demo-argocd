@@ -3,14 +3,16 @@
   "mgmt_cluster_label": "lke-dev-mgmt",
   "worker_cluster_label": "lke-dev-ateam",
   "private_network": {
-    "enabled": false,
-    "argocd_internal_fqdn": "",
-    "openvpn_server_public_ipv4": "",
+    "enabled": true,
+    "environment": "dev",
+    "linode_region": "ap-south",
+    "base_domain_parameter_name": "/gitops/platform-access/network/BASE_DOMAIN",
+    "vpn_public_egress_ip_parameter_name": "/gitops/platform-access/network/VPN_PUBLIC_EGRESS_IP",
+    "endpoint_ip_parameter_name": "/gitops/dev/platform/argocd/ENDPOINT_IP",
+    "endpoint_hostname_parameter_name": "/gitops/dev/platform/argocd/ENDPOINT_HOSTNAME",
     "openvpn_server_public_ipv6": null,
-    "openvpn_tunnel_cidr": "",
-    "internal_dns_server_ip": "",
-    "argocd_load_balancer_ipv4": "",
-    "argocd_https_port": 443
+    "argocd_https_port": 443,
+    "argocd_tls_secret_name": "argocd-server-tls"
   },
   "root_applications": {
     "ateam": {

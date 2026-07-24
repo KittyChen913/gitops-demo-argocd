@@ -16,19 +16,19 @@ output "argocd_private_service_name" {
 
 output "argocd_canonical_url" {
   description = "由 argocd-cm 管理的 canonical internal URL。"
-  value       = var.private_network_enabled ? "https://${var.argocd_internal_fqdn}" : null
+  value       = var.private_network_enabled ? "https://${local.argocd_internal_fqdn}" : null
 }
 
 output "argocd_network_config" {
-  description = "設定 internal DNS 與 OpenVPN server 使用的非機密 hand-off values。"
+  description = "Platform Access使用的非機密endpoint hand-off contract。"
   value = {
-    enabled                    = var.private_network_enabled
-    argocd_internal_fqdn       = var.argocd_internal_fqdn
-    openvpn_server_public_ipv4 = var.openvpn_server_public_ipv4
-    openvpn_server_public_ipv6 = var.openvpn_server_public_ipv6
-    openvpn_tunnel_cidr        = var.openvpn_tunnel_cidr
-    internal_dns_server_ip     = var.internal_dns_server_ip
-    argocd_load_balancer_ipv4  = var.argocd_load_balancer_ipv4
-    argocd_https_port          = var.argocd_https_port
+    enabled                          = var.private_network_enabled
+    environment                      = var.deployment_environment
+    argocd_internal_fqdn             = local.argocd_internal_fqdn
+    argocd_load_balancer_ipv4        = try(linode_networking_ip.argocd_private[0].address, null)
+    argocd_https_port                = var.argocd_https_port
+    argocd_tls_secret_name           = var.argocd_tls_secret_name
+    endpoint_ip_parameter_name       = var.endpoint_ip_parameter_name
+    endpoint_hostname_parameter_name = var.endpoint_hostname_parameter_name
   }
 }

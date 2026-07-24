@@ -1,0 +1,73 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: argocd
+    app.kubernetes.io/part-of: gitops-demo
+spec:
+  project: default
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  source:
+    repoURL: https://github.com/KittyChen913/gitops-demo-infra.git
+    targetRevision: master
+    path: argocd/install
+    kustomize:
+      # Argo CD是argocd-cm與argocd-rbac-cm唯一controller。Terraform只渲染
+      # 此Application spec，不以kubernetes_config_map_v1_data爭用field ownership。
+      patches:
+        - target:
+            kind: ConfigMap
+            name: argocd-cm
+          patch: |-
+            - op: add
+              path: /data/url
+              value: https://${argocd_internal_fqdn}
+            - op: add
+              path: /data/accounts.prod-readonly
+              value: login
+            - op: add
+              path: /data/accounts.prod-operator
+              value: login
+        - target:
+            kind: ConfigMap
+            name: argocd-rbac-cm
+          patch: |-
+            - op: add
+              path: /data/policy.csv
+              value: |-
+                p, role:prod-readonly, applications, get, */*, allow
+                p, role:prod-operator, applications, get, */*, allow
+                p, role:prod-operator, applications, sync, */*, allow
+                g, prod-readonly, role:prod-readonly
+                g, prod-operator, role:prod-operator
+
+  ignoreDifferences:
+    - group: "*"
+      kind: "*"
+      jsonPointers:
+        - /metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration
+        - /metadata/annotations/kustomization.kubestack.com~1last-applied-config-gzip
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ClientSideApplyMigration=false
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

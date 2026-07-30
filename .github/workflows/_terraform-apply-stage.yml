@@ -51,6 +51,12 @@ jobs:
               ;;
           esac
 
+      - name: "Load environment configuration"
+        id: environment-config
+        uses: ./.github/actions/load-environment-config
+        with:
+          environment: ${{ inputs.environment }}
+
       - name: "Terraform Setup (init + AWS auth)"
         uses: ./.github/actions/tf-setup
         with:
@@ -72,6 +78,47 @@ jobs:
           echo "::add-mask::${linode_token}"
           printf 'LINODE_TOKEN=%s\n' "${linode_token}" >> "${GITHUB_ENV}"
           unset linode_token
+
+      - name: "Resolve automation VPN targets"
+        id: automation-vpn-targets
+        shell: bash
+        env:
+          MGMT_API_PARAMETER: ${{ steps.environment-config.outputs.mgmt_api_parameter }}
+          WORKER_API_PARAMETER: ${{ steps.environment-config.outputs.worker_api_parameter }}
+        run: |
+          set -euo pipefail
+          route_targets=()
+          health_targets=()
+          for parameter_path in "${MGMT_API_PARAMETER}" "${WORKER_API_PARAMETER}"; do
+            endpoint="$(aws ssm get-parameter \
+              --name "${parameter_path}" \
+              --query Parameter.Value \
+              --output text)"
+            test -n "${endpoint}"
+            endpoint_host="${endpoint#*://}"
+            endpoint_host="${endpoint_host%%/*}"
+            endpoint_host="${endpoint_host%%:*}"
+            route_targets+=("${endpoint}")
+            health_targets+=("${endpoint_host}:443")
+          done
+          {
+            echo "route_targets<<EOF"
+            printf '%s\n' "${route_targets[@]}"
+            echo "EOF"
+            echo "health_targets<<EOF"
+            printf '%s\n' "${health_targets[@]}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: "Open automation VPN tunnel"
+        id: automation-vpn
+        uses: KittyChen913/gitops-demo-platform-access/.github/actions/open-automation-vpn-tunnel@35bcef7b05a8d4b18526f3a6cb3761c04ea03d8c
+        with:
+          identity: ${{ steps.environment-config.outputs.automation_vpn_identity }}
+          profile-ssm-parameter: ${{ steps.environment-config.outputs.automation_vpn_profile_parameter }}
+          password-ssm-parameter: ${{ steps.environment-config.outputs.automation_vpn_password_parameter }}
+          route-targets: ${{ steps.automation-vpn-targets.outputs.route_targets }}
+          health-targets: ${{ steps.automation-vpn-targets.outputs.health_targets }}
 
       - name: "Settle Argo CD install dependencies"
         id: install-prerequisites
@@ -264,6 +311,12 @@ jobs:
         if: always()
         shell: bash
         run: printf 'LINODE_TOKEN=\n' >> "${GITHUB_ENV}"
+
+      - name: "Close automation VPN tunnel"
+        if: ${{ always() && steps.automation-vpn.outputs['state-directory'] != '' }}
+        uses: KittyChen913/gitops-demo-platform-access/.github/actions/close-automation-vpn-tunnel@35bcef7b05a8d4b18526f3a6cb3761c04ea03d8c
+        with:
+          state-directory: ${{ steps.automation-vpn.outputs['state-directory'] }}
 
       - name: "Write stage summary"
         if: always()

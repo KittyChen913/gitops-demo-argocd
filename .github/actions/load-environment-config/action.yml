@@ -19,6 +19,21 @@ outputs:
   root_applications:
     description: "Root Application metadata as compact JSON"
     value: ${{ steps.load.outputs.root_applications }}
+  automation_vpn_identity:
+    description: "Repository-scoped automation VPN identity"
+    value: ${{ steps.load.outputs.automation_vpn_identity }}
+  automation_vpn_profile_parameter:
+    description: "SSM parameter containing the automation VPN profile"
+    value: ${{ steps.load.outputs.automation_vpn_profile_parameter }}
+  automation_vpn_password_parameter:
+    description: "SSM parameter containing the automation VPN password"
+    value: ${{ steps.load.outputs.automation_vpn_password_parameter }}
+  mgmt_api_parameter:
+    description: "Management Cluster API endpoint SSM parameter"
+    value: ${{ steps.load.outputs.mgmt_api_parameter }}
+  worker_api_parameter:
+    description: "Worker Cluster API endpoint SSM parameter"
+    value: ${{ steps.load.outputs.worker_api_parameter }}
 
 runs:
   using: "composite"
@@ -91,11 +106,38 @@ runs:
           exit 1
         fi
 
+        if ! jq -e '
+          .automation_vpn.identity == "ci-infra"
+          and .automation_vpn.profile_ssm_path ==
+            "/gitops/platform-access/automation/ci-infra/PROFILE"
+          and .automation_vpn.password_ssm_path ==
+            "/gitops/platform-access/automation/ci-infra/PASSWORD"
+          and (
+            .automation_vpn.shared_interface
+            | test("^KittyChen913/gitops-demo-platform-access/\\.github/actions/open-automation-vpn-tunnel@[0-9a-f]{40}$")
+          )
+          and (
+            .automation_vpn.close_interface
+            | test("^KittyChen913/gitops-demo-platform-access/\\.github/actions/close-automation-vpn-tunnel@[0-9a-f]{40}$")
+          )
+        ' "${CONFIG_PATH}" >/dev/null; then
+          echo "::error::Invalid automation_vpn configuration: ${CONFIG_FILE}"
+          exit 1
+        fi
+
         ROOT_APPLICATIONS="$(jq -cer '.root_applications' "${CONFIG_PATH}")"
+        AUTOMATION_VPN_IDENTITY="$(jq -er '.automation_vpn.identity' "${CONFIG_PATH}")"
+        AUTOMATION_VPN_PROFILE_PARAMETER="$(jq -er '.automation_vpn.profile_ssm_path' "${CONFIG_PATH}")"
+        AUTOMATION_VPN_PASSWORD_PARAMETER="$(jq -er '.automation_vpn.password_ssm_path' "${CONFIG_PATH}")"
 
         {
           echo "ssm_path_prefix=${SSM_PATH_PREFIX}"
           echo "mgmt_cluster_label=${MGMT_CLUSTER_LABEL}"
           echo "worker_cluster_label=${WORKER_CLUSTER_LABEL}"
           echo "root_applications=${ROOT_APPLICATIONS}"
+          echo "automation_vpn_identity=${AUTOMATION_VPN_IDENTITY}"
+          echo "automation_vpn_profile_parameter=${AUTOMATION_VPN_PROFILE_PARAMETER}"
+          echo "automation_vpn_password_parameter=${AUTOMATION_VPN_PASSWORD_PARAMETER}"
+          echo "mgmt_api_parameter=${SSM_PATH_PREFIX}/${MGMT_CLUSTER_LABEL}/api-endpoint"
+          echo "worker_api_parameter=${SSM_PATH_PREFIX}/${WORKER_CLUSTER_LABEL}/api-endpoint"
         } >> "${GITHUB_OUTPUT}"

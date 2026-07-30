@@ -79,6 +79,27 @@ jobs:
             ${{ steps.environment-config.outputs.ssm_path_prefix }}/${{
             steps.environment-config.outputs.mgmt_cluster_label }}
 
+      - name: Resolve automation VPN target
+        id: automation-vpn-target
+        run: |
+          set -euo pipefail
+          : "${API_ENDPOINT:?SSM parameter api-endpoint is required}"
+          endpoint_host="${API_ENDPOINT#*://}"
+          endpoint_host="${endpoint_host%%/*}"
+          endpoint_host="${endpoint_host%%:*}"
+          printf 'route_target=%s\n' "${API_ENDPOINT}" >> "${GITHUB_OUTPUT}"
+          printf 'health_target=%s:443\n' "${endpoint_host}" >> "${GITHUB_OUTPUT}"
+
+      - name: Open automation VPN tunnel
+        id: automation-vpn
+        uses: KittyChen913/gitops-demo-platform-access/.github/actions/open-automation-vpn-tunnel@35bcef7b05a8d4b18526f3a6cb3761c04ea03d8c
+        with:
+          identity: ${{ steps.environment-config.outputs.automation_vpn_identity }}
+          profile-ssm-parameter: ${{ steps.environment-config.outputs.automation_vpn_profile_parameter }}
+          password-ssm-parameter: ${{ steps.environment-config.outputs.automation_vpn_password_parameter }}
+          route-targets: ${{ steps.automation-vpn-target.outputs.route_target }}
+          health-targets: ${{ steps.automation-vpn-target.outputs.health_target }}
+
       - name: Build Temporary Kubeconfig
         env:
           MGMT_LABEL: ${{ steps.environment-config.outputs.mgmt_cluster_label }}
@@ -136,6 +157,12 @@ jobs:
           path: "${{ runner.temp }}/argocd-health-${{ matrix.environment }}.txt"
           retention-days: 30
           if-no-files-found: ignore
+
+      - name: Close automation VPN tunnel
+        if: ${{ always() && steps.automation-vpn.outputs['state-directory'] != '' }}
+        uses: KittyChen913/gitops-demo-platform-access/.github/actions/close-automation-vpn-tunnel@35bcef7b05a8d4b18526f3a6cb3761c04ea03d8c
+        with:
+          state-directory: ${{ steps.automation-vpn.outputs['state-directory'] }}
 
       - name: Cleanup Sensitive Files
         if: always()

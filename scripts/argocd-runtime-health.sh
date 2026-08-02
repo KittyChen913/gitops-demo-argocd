@@ -3,9 +3,9 @@
 # ArgoCD 執行階段健康檢查
 #
 # 檢查範圍：
-#   1. 作為執行前提的 Kubernetes API connectivity
+#   1. 作為執行前提的 Kubernetes API 連線能力
 #   2. ArgoCD Pod 就緒狀態
-#   3. ArgoCD Application sync/health 狀態
+#   3. ArgoCD Application sync／health 狀態
 #   4. 預期的 Worker Cluster 註冊狀態
 #
 # Kubernetes node 與 kube-system health 由 gitops-demo-cluster 負責。

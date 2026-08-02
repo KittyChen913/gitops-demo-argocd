@@ -64,8 +64,8 @@ jobs:
           aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
 
       - name: "Load Linode provider material"
-        # Multiple later Terraform plan/apply steps require the provider-native
-        # LINODE_TOKEN variable. Keep only this exact Secret in the ephemeral job.
+        # 後續多個 Terraform plan／apply steps 需要 provider 原生的
+        # LINODE_TOKEN 變數；ephemeral job 只保留這個必要 Secret。
         shell: bash
         run: |
           set -euo pipefail
@@ -261,7 +261,7 @@ jobs:
           fi
 
       # kbst install resources 需要 refresh=false；Terraform-owned endpoint
-      # 另以一般 refresh semantics 進行 reconciliation。
+      # 另以一般 refresh 語意進行 reconciliation。
       - name: "Reconcile private Argo CD endpoint"
         if: inputs.stage == 'install'
         env:

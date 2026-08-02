@@ -32,7 +32,7 @@ spec:
     path: argocd/install    # 指向含有 kustomization.yaml 的目錄
 
   # Terraform kbst provider 會將前一版 manifest 儲存在這些 annotations。
-  # Argo CD 接手相同資源的 reconciliation 時必須保留這些內容。
+  # ArgoCD 接手相同資源的 reconciliation 時必須保留這些內容。
   ignoreDifferences:
     - group: "*"
       kind: "*"

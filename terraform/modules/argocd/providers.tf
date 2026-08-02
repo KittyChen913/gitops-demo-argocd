@@ -3,7 +3,7 @@ provider "aws" {
   region = var.aws_region
 }
 
-# ── Kubernetes Provider（Management Cluster）────────────────────────────────
+# ── Kubernetes Provider 設定（Management Cluster）───────────────────────────
 # 連線資訊由 AWS SSM Parameter Store 取得（見 main.tf 的 data sources）。
 # 用於建立 Worker Cluster Secret。
 provider "kubernetes" {

@@ -53,7 +53,7 @@ runs:
         aws-account-id: ${{ inputs.aws-account-id }}
         aws-region: ${{ inputs.aws-region }}
 
-    # ── 3. Terraform 初始化（S3 Backend）──────────────────────────────────────
+    # ── 3. Terraform 初始化（S3 backend）──────────────────────────────────────
     # bucket / region / key / encrypt / use_lockfile 均定義於環境 root 的 backend.tf。
     # 使用 -reconfigure 確保 CI 每次都重新初始化。
     - name: Terraform Init

@@ -29,8 +29,8 @@ data "aws_ssm_parameter" "worker_token" {
   with_decryption = true
 }
 
-# ── Platform Access跨Repository hand-off ───────────────────────────────────
-# 只讀取精確parameter名稱；不讀取另一個Repository的Terraform state。
+# ── Platform Access 跨 Repository hand-off ─────────────────────────────────
+# 只讀取精確 parameter 名稱；不讀取另一個 Repository 的 Terraform state。
 data "aws_ssm_parameter" "base_domain" {
   count = var.private_network_enabled ? 1 : 0
   name  = var.base_domain_parameter_name
@@ -95,8 +95,8 @@ resource "kubernetes_namespace_v1" "argocd" {
   }
 }
 
-# Dev／Prod各自state擁有一個專用Reserved IPv4。CCM只負責把該位址綁到
-# companion Service所建立的NodeBalancer，不從versioned config複製public IP。
+# Dev／Prod 各自的 state 擁有一個專用 Reserved IPv4。CCM 只負責把該位址綁到
+# companion Service 所建立的 NodeBalancer，不從 versioned config 複製 public IP。
 resource "linode_networking_ip" "argocd_private" {
   count = var.private_network_enabled ? 1 : 0
 
@@ -110,9 +110,9 @@ resource "linode_networking_ip" "argocd_private" {
   }
 }
 
-# 專用的 VPN-only 入口。既有 argocd-server ClusterIP Service 仍由 Argo CD
+# 專用的 VPN-only 入口。既有 argocd-server ClusterIP Service 仍由 ArgoCD
 # Kustomize installation 管理；此 companion Service 只由 Terraform 管理，
-# 避免 Argo CD 與 Terraform 協調同一個 Kubernetes object。
+# 避免 ArgoCD 與 Terraform 協調同一個 Kubernetes object。
 resource "kubernetes_service_v1" "argocd_server_private" {
   count = var.private_network_enabled ? 1 : 0
 
@@ -176,8 +176,8 @@ resource "kubernetes_service_v1" "argocd_server_private" {
   }
 }
 
-# Endpoint publication是非敏感跨Repository介面。Platform Access只讀取這兩個
-# parameter，不讀infra state；prevent_destroy避免停用feature gate時默默刪除contract。
+# Endpoint publication 是非敏感的跨 Repository 介面。Platform Access 只讀取這兩個
+# parameter，不讀取 infra state；prevent_destroy 避免停用 feature gate 時默默刪除 contract。
 resource "aws_ssm_parameter" "argocd_endpoint_ip" {
   count = var.private_network_enabled ? 1 : 0
 
@@ -217,7 +217,7 @@ resource "kustomization_resource" "argocd_p0" {
   depends_on = [kubernetes_namespace_v1.argocd]
 
   lifecycle {
-    # 首次 bootstrap 後由 Argo CD 接手 install manifests 的 reconciliation。
+    # 首次 bootstrap 後由 ArgoCD 接手 install manifests 的 reconciliation。
     ignore_changes = [manifest]
   }
 }
@@ -239,7 +239,7 @@ resource "kustomization_resource" "argocd_p2" {
   depends_on = [kustomization_resource.argocd_p1]
 
   lifecycle {
-    # 後續升級與 drift 修復由 self-managed Argo CD Application 負責。
+    # 後續升級與 drift 修復由 self-managed ArgoCD Application 負責。
     ignore_changes = [manifest]
   }
 }

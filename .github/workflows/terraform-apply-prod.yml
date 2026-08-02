@@ -147,7 +147,7 @@ jobs:
   # ⚠️  UI 設定提醒：
   #   設定路徑：Settings → Environments → prod → Protection rules
   #   ✅ Required reviewers（至少 1 人）
-  #   ✅ 部署分支 → 符合 v* 的 Tag
+  #   ✅ 部署分支 → 符合 v* 的 tag
   # ────────────────────────────────────────────────────────────────────────────
   install-argocd:
     name: "1. Install Argo CD [prod] — ${{ needs.validate-tag.outputs.version }}"

@@ -4,7 +4,7 @@
 
 ## Repository 範圍
 
-- 本 repository 管理平台與 GitOps 層：安裝 Argo CD、Argo CD 自我管理、註冊 Worker Cluster，以及初始化根 Application。
+- 本 repository 管理平台與 GitOps 層：安裝 ArgoCD、ArgoCD 自我管理、註冊 Worker Cluster，以及初始化根 Application。
 - Kubernetes 叢集佈建由 `gitops-demo-cluster` 負責，不屬於本 repository。
 - Shared OpenVPN建立於獨立Linode VM，由`gitops-demo-platform-access`負責；不在Kubernetes Cluster內建立，本repository也不取得其producer或BASE configuration ownership。
 - Application manifest 與 ApplicationSet 由 `gitops-demo-apps` 負責，不屬於本 repository。
@@ -17,9 +17,9 @@
 - `terraform/argocd/dev/`：dev 環境的正式 Terraform root，包含靜態 backend，並讀取 dev environment config。
 - `terraform/argocd/prod/`：prod 環境的正式 Terraform root，包含靜態 backend，並讀取 prod environment config。
 - `terraform/argocd/environments/`：dev 與 prod 各自的共用 environment config，供 Terraform 與 GitHub Actions 讀取。
-- `terraform/modules/argocd/`：dev 與 prod 共用的 Argo CD Terraform module。
-- `argocd/install/`：安裝 Argo CD 的 Kustomize manifest。
-- `argocd/bootstrap/`：Argo CD 自我管理與根 Application manifest。
+- `terraform/modules/argocd/`：dev 與 prod 共用的 ArgoCD Terraform module。
+- `argocd/install/`：安裝 ArgoCD 的 Kustomize manifest。
+- `argocd/bootstrap/`：ArgoCD 自我管理與根 Application manifest。
 - `.github/actions/`：本地 composite action。
 - `.github/workflows/`：GitHub Actions workflow。
 - `scripts/`：CI 輔助腳本。
@@ -32,7 +32,10 @@
 - 不得以完整英文句子撰寫註解；英文專有名詞應放在中文敘述中。
 - `Management Cluster`、`Worker Cluster`、`Cluster` 與 `S3 State Bucket` 均視為專有名詞，不得翻譯成中文，也不得使用其他大小寫變體。
 - 複數形式必須寫成 `Management Clusters`、`Worker Clusters` 與 `S3 State Buckets`。
-- README、docs、Terraform description、workflow 顯示文字、summary 與人工維護的執行訊息也必須遵守相同的專有名詞大小寫。
+- README 與 docs 使用繁體中文敘述，並遵守相同的專有名詞大小寫。
+- Workflow／job／step、composite action 的 `name` 與 `description` 必須使用英文。
+- 程式碼內的文字必須使用英文，包括 Terraform `description`／`error_message`、CLI／UI 文字、log、error、warning、summary 與其他執行訊息；但等待／重試迴圈中即時印給人類觀察進度的狀態訊息（例如第幾次嘗試、剩餘秒數、失敗原因、逾時後的診斷輸出）例外，使用繁體中文。
+- 產品名稱的唯一允許拼法為 `ArgoCD`。
 - 自動生成檔案（例如 `.terraform.lock.hcl`）的生成器註解、shebang、lint directive 與被註解掉的程式碼不需翻譯或改寫。
 
 ## Terraform 規則
@@ -58,7 +61,7 @@
 - 需要 AWS 的 job 必須包含 `permissions: id-token: write` 與 `contents: read`。
 - 只有 job 透過 `uses: ./.github/workflows/...` 呼叫 reusable workflow 時才需要 `secrets: inherit`；composite action 不使用此設定。
 - 修改 composite action 時，必須透過 `.github/actions/**` 將變更納入相關 workflow 的 `paths` filter。
-- Workflow 需要讀取 Argo CD environment config 時，必須使用 `.github/actions/load-environment-config`，不得自行組合 config 路徑或重複以 `jq` 解析欄位。
+- Workflow 需要讀取 ArgoCD environment config 時，必須使用 `.github/actions/load-environment-config`，不得自行組合 config 路徑或重複以 `jq` 解析欄位。
 - 使用目前的 action major tag：`actions/checkout@v6`、`hashicorp/setup-terraform@v4`、`actions/upload-artifact@v7`、`azure/setup-kubectl@v5` 與 `aws-actions/configure-aws-credentials@v6`。
 
 ## Workflow 職責
@@ -68,11 +71,11 @@
 - `terraform-apply-prod.yml` 會從 commit 可追溯至 `master` 的 SemVer tag 部署 prod；prod 必須依賴 GitHub Environment 核准。
 - `terraform-apply.yml` 僅供手動 override 使用。
 - 本repository不保留backend bootstrap workflow，也不建立、驗證或校正S3 State Bucket；bucket lifecycle與安全設定由repository外部owner負責。
-- Apply workflow 必須將部署分成依序執行的三個 Terraform job：安裝 Argo CD、註冊 Argo CD self-managed Application、註冊 ATeam Root Application。
-- 三個 Argo CD Terraform job 必須使用相同環境的遠端 state，並透過 `_terraform-apply-stage.yml` 執行對應的 targeted plan/apply。
+- Apply workflow 必須將部署分成依序執行的三個 Terraform job：安裝 ArgoCD、註冊 ArgoCD self-managed Application、註冊 ATeam Root Application。
+- 三個 ArgoCD Terraform job 必須使用相同環境的遠端 state，並透過 `_terraform-apply-stage.yml` 執行對應的 targeted plan/apply。
 - 僅修改文件時，不應觸發部署 workflow。
 
-跨Repository從零部署順序固定為：Cluster foundation → Platform Access → Cluster worker firewall convergence → Infra / Argo CD → User Provisioning。
+跨Repository從零部署順序固定為：Cluster foundation → Platform Access → Cluster worker firewall convergence → Infra / ArgoCD → User Provisioning。
 
 ## Workflow 安全規則
 
@@ -82,11 +85,11 @@
 - Provider token 與叢集 credentials 必須存放於 AWS SSM Parameter Store，不得存放於 GitHub Secrets。
 - Workflow 需要取得共用 SSM provider token 時，必須使用 `.github/actions/get-ssm-parameters`。
 
-## Argo CD 與 GitOps
+## ArgoCD 與 GitOps
 
-- Terraform 從 `argocd/install/` 安裝 Argo CD，並套用 `argocd/bootstrap/` 中的 bootstrap manifest。
+- Terraform 從 `argocd/install/` 安裝 ArgoCD，並套用 `argocd/bootstrap/` 中的 bootstrap manifest。
 - 根 Application manifest 位於 `argocd/bootstrap/<team>/`。
-- Management Cluster 只運行 Argo CD；Worker Cluster 運行應用程式 workload。
+- Management Cluster 只運行 ArgoCD；Worker Cluster 運行應用程式 workload。
 - 不得將 application layer manifest 加入本 repository。
 - 除非 workflow 明確用於驗證或緊急處理，否則不得為 Terraform 已處理的 bootstrap 行為手動加入 `kubectl apply` 步驟。
 

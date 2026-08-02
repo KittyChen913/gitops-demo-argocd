@@ -8,7 +8,7 @@
 #
 # 驗證項目（依序）：
 #   1. Kubernetes API 連通性
-#   2. ArgoCD Pod 就緒狀態（argocd namespace 至少 4 個 Running Pod）
+#   2. ArgoCD Pod 就緒狀態（argocd namespace 至少 4 個 Running Pods）
 #   3. ArgoCD API /healthz + /readyz 端點
 #   4. ArgoCD 自我管理 Application（name: argocd）的同步與健康狀態
 #   5. Root Application 初始化（root-application-dev / root-application-prod）

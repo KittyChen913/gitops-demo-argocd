@@ -36,7 +36,7 @@ variable "root_applications" {
 }
 
 variable "private_network_enabled" {
-  description = "是否建立僅供 VPN 使用的 Argo CD private endpoint。"
+  description = "是否建立僅供 VPN 使用的 ArgoCD private endpoint。"
   type        = bool
   default     = false
 }
@@ -86,7 +86,7 @@ variable "vpn_public_egress_ip_parameter_name" {
 }
 
 variable "endpoint_ip_parameter_name" {
-  description = "Infra發布Argo CD private endpoint IPv4的精確SSM parameter名稱。"
+  description = "Infra發布ArgoCD private endpoint IPv4的精確SSM parameter名稱。"
   type        = string
   default     = ""
 
@@ -97,7 +97,7 @@ variable "endpoint_ip_parameter_name" {
 }
 
 variable "endpoint_hostname_parameter_name" {
-  description = "Infra發布Argo CD private endpoint hostname的精確SSM parameter名稱。"
+  description = "Infra發布ArgoCD private endpoint hostname的精確SSM parameter名稱。"
   type        = string
   default     = ""
 
@@ -108,7 +108,7 @@ variable "endpoint_hostname_parameter_name" {
 }
 
 variable "argocd_internal_fqdn" {
-  description = "VPN 用戶端連線 Argo CD UI 使用的內部 FQDN。"
+  description = "VPN 用戶端連線 ArgoCD UI 使用的內部 FQDN。"
   type        = string
   default     = ""
 
@@ -123,7 +123,7 @@ variable "argocd_internal_fqdn" {
 }
 
 variable "openvpn_server_public_ipv4" {
-  description = "OpenVPN server 對 Argo CD 流量執行 SNAT 時使用的固定公有 IPv4。"
+  description = "OpenVPN server 對 ArgoCD 流量執行 SNAT 時使用的固定公有 IPv4。"
   type        = string
   default     = ""
 
@@ -174,7 +174,7 @@ variable "internal_dns_server_ip" {
 }
 
 variable "argocd_load_balancer_ipv4" {
-  description = "預先保留並指派給專用 Argo CD NodeBalancer 的 Linode IPv4。"
+  description = "預先保留並指派給專用 ArgoCD NodeBalancer 的 Linode IPv4。"
   type        = string
   default     = ""
 
@@ -185,18 +185,18 @@ variable "argocd_load_balancer_ipv4" {
 }
 
 variable "argocd_https_port" {
-  description = "專用 Argo CD NodeBalancer 公開的 HTTPS listener port。"
+  description = "專用 ArgoCD NodeBalancer 公開的 HTTPS listener port。"
   type        = number
   default     = 443
 
   validation {
     condition     = !var.private_network_enabled || var.argocd_https_port == 443
-    error_message = "VPN-only Argo CD private endpoint只允許TCP/443。"
+    error_message = "VPN-only ArgoCD private endpoint只允許TCP/443。"
   }
 }
 
 variable "argocd_tls_secret_name" {
-  description = "Argo CD server Pod終止TLS所使用的既有Secret reference。"
+  description = "ArgoCD server Pod終止TLS所使用的既有Secret reference。"
   type        = string
   default     = "argocd-server-tls"
 

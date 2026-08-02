@@ -10,7 +10,7 @@ output "mgmt_cluster_endpoint" {
 }
 
 output "argocd_private_service_name" {
-  description = "VPN-only Argo CD endpoint 使用的 Terraform-owned Kubernetes Service。"
+  description = "VPN-only ArgoCD endpoint 使用的 Terraform-owned Kubernetes Service。"
   value       = module.argocd.argocd_private_service_name
 }
 

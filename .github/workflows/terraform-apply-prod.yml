@@ -150,7 +150,7 @@ jobs:
   #   ✅ 部署分支 → 符合 v* 的 tag
   # ────────────────────────────────────────────────────────────────────────────
   install-argocd:
-    name: "1. Install Argo CD [prod] — ${{ needs.validate-tag.outputs.version }}"
+    name: "1. Install ArgoCD [prod] — ${{ needs.validate-tag.outputs.version }}"
     needs: validate-tag
     uses: ./.github/workflows/_terraform-apply-stage.yml
     with:
@@ -159,7 +159,7 @@ jobs:
     secrets: inherit
 
   register-argocd-application:
-    name: "2. Register Argo CD Application [prod]"
+    name: "2. Register ArgoCD Application [prod]"
     needs: install-argocd
     uses: ./.github/workflows/_terraform-apply-stage.yml
     with:

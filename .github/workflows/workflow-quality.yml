@@ -62,7 +62,7 @@ jobs:
           chmod 0755 "${binary}"
           printf 'binary=%s\n' "${binary}" >> "${GITHUB_OUTPUT}"
 
-      - name: "Build Argo CD installation"
+      - name: "Build ArgoCD installation"
         env:
           KUSTOMIZE_BINARY: ${{ steps.kustomize.outputs.binary }}
         run: |

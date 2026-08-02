@@ -32,7 +32,7 @@ on:
     branches:
       - master
     # ── Path Allowlist（等同 paths-ignore docs）────────────────────────────
-    # 僅 dev root、共用 module、Argo CD manifest 與此 pipeline
+    # 僅 dev root、共用 module、ArgoCD manifest 與此 pipeline
     # 的直接依賴變更才觸發。Prod-only、文件與一般 workflow 變更不部署 dev。
     paths:
       - "terraform/argocd/environments/dev.json"
@@ -74,7 +74,7 @@ jobs:
   # Jobs 2-4：分階段執行 dev Terraform Apply
   # ────────────────────────────────────────────────────────────────────────────
   install-argocd:
-    name: "1. Install Argo CD [dev]"
+    name: "1. Install ArgoCD [dev]"
     needs: quality
     uses: ./.github/workflows/_terraform-apply-stage.yml
     with:
@@ -83,7 +83,7 @@ jobs:
     secrets: inherit
 
   register-argocd-application:
-    name: "2. Register Argo CD Application [dev]"
+    name: "2. Register ArgoCD Application [dev]"
     needs: install-argocd
     uses: ./.github/workflows/_terraform-apply-stage.yml
     with:

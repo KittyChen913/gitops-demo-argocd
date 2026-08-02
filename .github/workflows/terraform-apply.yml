@@ -29,7 +29,7 @@
 #   - prod 使用 GitHub Environment 的 required reviewer protection
 #   - prod workflow_dispatch 需輸入 "APPLY-PROD" 確認字串
 #   - concurrency lock 防止同環境雙重 apply
-#   - Argo CD bootstrap Applications 由 Terraform provider 直接管理
+#   - ArgoCD bootstrap Applications 由 Terraform provider 直接管理
 #   - AWS credentials 透過 OIDC（無 stored key）
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -129,7 +129,7 @@ jobs:
   # Jobs 3-6：分階段 Terraform Apply
   # ────────────────────────────────────────────────────────────────────────────
   install-argocd:
-    name: "1. Install Argo CD [${{ matrix.environment }}]"
+    name: "1. Install ArgoCD [${{ matrix.environment }}]"
     needs: [determine-env, guard-prod]
     if: |
       always() &&
@@ -147,7 +147,7 @@ jobs:
     secrets: inherit
 
   register-argocd-application:
-    name: "2. Register Argo CD Application [${{ matrix.environment }}]"
+    name: "2. Register ArgoCD Application [${{ matrix.environment }}]"
     needs: [determine-env, install-argocd]
     strategy:
       matrix:

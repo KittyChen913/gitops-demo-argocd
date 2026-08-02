@@ -10,7 +10,7 @@ output "mgmt_cluster_endpoint" {
 }
 
 output "argocd_private_service_name" {
-  description = "建立 VPN-only Argo CD NodeBalancer 的 Terraform-owned Kubernetes Service。"
+  description = "建立 VPN-only ArgoCD NodeBalancer 的 Terraform-owned Kubernetes Service。"
   value       = try(kubernetes_service_v1.argocd_server_private[0].metadata[0].name, null)
 }
 

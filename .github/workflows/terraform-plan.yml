@@ -168,7 +168,7 @@ jobs:
 
       # ── 規劃 ───────────────────────────────────────────────────────────────
       # -detailed-exitcode：0 表示無變更、1 表示錯誤、2 表示有變更
-      # Install resources 由 Argo CD 自我管理，因此不 refresh kbst live state。
+      # Install resources 由 ArgoCD 自我管理，因此不 refresh kbst live state。
       # plan artifact 儲存在 $RUNNER_TEMP（不在 working-dir）避免意外提交
       - name: "Terraform Plan"
         id: plan

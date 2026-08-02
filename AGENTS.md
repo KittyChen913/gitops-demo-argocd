@@ -106,10 +106,10 @@
 - README 中的範例必須與 `docs/ci-cd.md` 保持一致。
 - 分支相關的 workflow 設定、註解與文件都必須使用 `master`。
 
-## 驗證
+## 最小必要 Validation
 
-- 修改 workflow 時，應盡可能執行 actionlint：
-  `docker run --rm -v "${PWD}:/repo" --workdir /repo rhysd/actionlint:1.7.12 -color`
-- 修改腳本時，應盡可能執行 ShellCheck：
-  `docker run --rm --entrypoint shellcheck -v "${PWD}:/repo" --workdir /repo rhysd/actionlint:1.7.12 scripts/argocd-runtime-health.sh`
-- 修改 Terraform 時，若 dependencies 與 backend 均可使用，應在相關 Terraform root 執行 `terraform fmt` 與 `terraform validate`。
+- 依全域「最小必要 Validation」規範，先判定本次變更影響的 workflow、Shell execution path、Terraform root／module、Kustomize render target 或 shared configuration contract，再從 repository 既有的 `actionlint`、ShellCheck、Terraform fmt／validate、Kustomize build 與 contract checks 中選擇能直接驗證風險的最小子集。
+- 只影響單一環境、root、script 或 manifest target 時，優先使用對應的 targeted validation；不得預設檢查 dev、prod、所有 workflows、所有 scripts 或完整 repository。
+- 共用 module、environment config schema、reusable workflow、composite action 或 ArgoCD bootstrap contract 確實影響多個直接 consumers 時，才擴大驗證範圍，並在執行前說明局部驗證不足的原因。
+- 完整 workflow quality、Terraform plan、apply 與 runtime verification 屬 PR、merge、release、deployment 或獨立驗收 gate，不是每次本機局部修改後的預設 validation。
+- dependencies、backend、credentials、Container Image 或安全執行條件不可用時，標示 `BLOCKED` 或 `NOT RUN`，並說明替代靜態驗證與未取得的信心。

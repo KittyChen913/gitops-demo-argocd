@@ -112,11 +112,12 @@ jobs:
 
       - name: "Open automation VPN tunnel"
         id: automation-vpn
-        uses: KittyChen913/gitops-demo-platform-access/.github/actions/open-automation-vpn-tunnel@35bcef7b05a8d4b18526f3a6cb3761c04ea03d8c
+        uses: ./.github/actions/open-automation-vpn-tunnel
         with:
           identity: ${{ steps.environment-config.outputs.automation_vpn_identity }}
           profile-ssm-parameter: ${{ steps.environment-config.outputs.automation_vpn_profile_parameter }}
           password-ssm-parameter: ${{ steps.environment-config.outputs.automation_vpn_password_parameter }}
+          expected-tunnel-ip: ${{ steps.environment-config.outputs.automation_vpn_expected_tunnel_ip }}
           route-targets: ${{ steps.automation-vpn-targets.outputs.route_targets }}
           health-targets: ${{ steps.automation-vpn-targets.outputs.health_targets }}
 
@@ -314,7 +315,7 @@ jobs:
 
       - name: "Close automation VPN tunnel"
         if: ${{ always() && steps.automation-vpn.outputs['state-directory'] != '' }}
-        uses: KittyChen913/gitops-demo-platform-access/.github/actions/close-automation-vpn-tunnel@35bcef7b05a8d4b18526f3a6cb3761c04ea03d8c
+        uses: ./.github/actions/close-automation-vpn-tunnel
         with:
           state-directory: ${{ steps.automation-vpn.outputs['state-directory'] }}
 

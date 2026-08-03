@@ -6,8 +6,7 @@
     "identity": "ci-infra",
     "profile_ssm_path": "/gitops/platform-access/automation/ci-infra/PROFILE",
     "password_ssm_path": "/gitops/platform-access/automation/ci-infra/PASSWORD",
-    "shared_interface": "KittyChen913/gitops-demo-platform-access/.github/actions/open-automation-vpn-tunnel@35bcef7b05a8d4b18526f3a6cb3761c04ea03d8c",
-    "close_interface": "KittyChen913/gitops-demo-platform-access/.github/actions/close-automation-vpn-tunnel@35bcef7b05a8d4b18526f3a6cb3761c04ea03d8c"
+    "expected_tunnel_ip": "172.28.0.3"
   },
   "private_network": {
     "enabled": true,

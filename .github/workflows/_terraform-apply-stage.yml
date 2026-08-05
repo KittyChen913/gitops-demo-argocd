@@ -63,22 +63,6 @@ jobs:
           environment: ${{ inputs.environment }}
           aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
 
-      - name: "Load Linode provider material"
-        # 後續多個 Terraform plan／apply steps 需要 provider 原生的
-        # LINODE_TOKEN 變數；ephemeral job 只保留這個必要 Secret。
-        shell: bash
-        run: |
-          set -euo pipefail
-          linode_token="$(aws ssm get-parameter \
-            --name /gitops/shared/LINODE_TOKEN \
-            --with-decryption \
-            --query Parameter.Value \
-            --output text)"
-          test -n "${linode_token}"
-          echo "::add-mask::${linode_token}"
-          printf 'LINODE_TOKEN=%s\n' "${linode_token}" >> "${GITHUB_ENV}"
-          unset linode_token
-
       - name: "Resolve automation VPN targets"
         id: automation-vpn-targets
         shell: bash
@@ -261,21 +245,30 @@ jobs:
             exit "${APPLY_EXIT}"
           fi
 
-      # kbst install resources 需要 refresh=false；Terraform-owned endpoint
-      # 另以一般 refresh 語意進行 reconciliation。
+      # private-network 是獨立 root／獨立 state（terraform/argocd/<env>/private-network），
+      # 不再對 install stage 共用的 state 做 -target 切割；這裡是完整、不帶 -target 的
+      # plan/apply，只作用在這個 root 自己的 state。
       - name: "Reconcile private ArgoCD endpoint"
         if: inputs.stage == 'install'
         env:
           TF_IN_AUTOMATION: "true"
+        working-directory: terraform/argocd/${{ inputs.environment }}/private-network
         run: |
+          set -euo pipefail
+          terraform init -input=false
+
+          linode_token="$(aws ssm get-parameter \
+            --name /gitops/shared/LINODE_TOKEN \
+            --with-decryption \
+            --query Parameter.Value \
+            --output text)"
+          test -n "${linode_token}"
+          echo "::add-mask::${linode_token}"
+
           PLAN_FILE="${RUNNER_TEMP}/tfplan.private-endpoint"
 
           set +e
-          terraform plan \
-            -target=module.argocd.linode_networking_ip.argocd_private \
-            -target=module.argocd.kubernetes_service_v1.argocd_server_private \
-            -target=module.argocd.aws_ssm_parameter.argocd_endpoint_ip \
-            -target=module.argocd.aws_ssm_parameter.argocd_endpoint_hostname \
+          LINODE_TOKEN="${linode_token}" terraform plan \
             -out="${PLAN_FILE}" \
             -no-color \
             -detailed-exitcode \
@@ -296,7 +289,7 @@ jobs:
                     echo "::error::Private endpoint plan contains delete or replacement"
                     exit 1
                   }
-              terraform apply \
+              LINODE_TOKEN="${linode_token}" terraform apply \
                 -auto-approve \
                 -input=false \
                 -no-color \
@@ -307,11 +300,6 @@ jobs:
               exit "${PLAN_EXIT}"
               ;;
           esac
-
-      - name: "Clear Linode provider material"
-        if: always()
-        shell: bash
-        run: printf 'LINODE_TOKEN=\n' >> "${GITHUB_ENV}"
 
       - name: "Close automation VPN tunnel"
         if: ${{ always() && steps.automation-vpn.outputs['state-directory'] != '' }}

@@ -82,7 +82,7 @@ runs:
               or (
                 (.environment == $environment)
                 and (.linode_region | type == "string" and test("^[a-z]{2}-[a-z]+$"))
-                and (.base_domain_parameter_name == "/gitops/platform-access/network/BASE_DOMAIN")
+                and (.internal_domain_parameter_name == "/gitops/platform-access/network/INTERNAL_DOMAIN")
                 and (.vpn_public_egress_ip_parameter_name == "/gitops/platform-access/network/VPN_PUBLIC_EGRESS_IP")
                 and (.endpoint_ip_parameter_name == ("/gitops/" + $environment + "/platform/argocd/ENDPOINT_IP"))
                 and (.endpoint_hostname_parameter_name == ("/gitops/" + $environment + "/platform/argocd/ENDPOINT_HOSTNAME"))

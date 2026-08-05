@@ -7,8 +7,8 @@
 # 行為：
 #   1. 偵測目標 environment（依 PR label: env:dev / env:prod，預設 dev）
 #   2. terraform fmt --check
-#   3. terraform validate
-#   4. terraform plan（-detailed-exitcode，不 apply）
+#   3. terraform validate（ArgoCD 與 private-network 兩個 root）
+#   4. 對兩份獨立 state 執行 terraform plan（-detailed-exitcode，不 apply）
 #   5. 將 plan 結果以 comment 貼回 PR
 #   6. 若有變更，上傳 plan artifact（供審閱與除錯保留）
 #
@@ -177,6 +177,43 @@ jobs:
           ENVIRONMENT: ${{ matrix.environment }}
         run: |
           set -euo pipefail
+          set +e
+          terraform plan \
+            -refresh=false \
+            -out="${{ runner.temp }}/tfplan.${ENVIRONMENT}" \
+            -no-color \
+            -detailed-exitcode \
+            -input=false \
+            2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
+            | tee "${{ runner.temp }}/plan_output.txt"
+          PLAN_EXIT="${PIPESTATUS[0]}"
+          set -e
+          echo "exitcode=${PLAN_EXIT}" >> "${GITHUB_OUTPUT}"
+
+          if [ "${PLAN_EXIT}" -eq 1 ]; then
+            echo "::error::terraform plan failed with exit code 1"
+            exit 1
+          fi
+
+      - name: "Terraform Init (private network)"
+        working-directory: terraform/argocd/${{ matrix.environment }}/private-network
+        run: terraform init -reconfigure -input=false
+
+      - name: "Terraform Validate (private network)"
+        id: validate-private-network
+        working-directory: terraform/argocd/${{ matrix.environment }}/private-network
+        env:
+          TF_IN_AUTOMATION: "true"
+        run: terraform validate -no-color
+
+      - name: "Terraform Plan (private network)"
+        id: private-network-plan
+        working-directory: terraform/argocd/${{ matrix.environment }}/private-network
+        env:
+          TF_IN_AUTOMATION: "true"
+          ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          set -euo pipefail
           linode_token="$(aws ssm get-parameter \
             --name /gitops/shared/LINODE_TOKEN \
             --with-decryption \
@@ -188,35 +225,31 @@ jobs:
           set +e
           LINODE_TOKEN="${linode_token}" terraform plan \
             -refresh=false \
-            -out="${{ runner.temp }}/tfplan.${ENVIRONMENT}" \
+            -out="${RUNNER_TEMP}/tfplan.private-network.${ENVIRONMENT}" \
             -no-color \
             -detailed-exitcode \
             -input=false \
             2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
-            | tee "${{ runner.temp }}/plan_output.txt"
+            | tee "${RUNNER_TEMP}/plan_output.private-network.txt"
           PLAN_EXIT="${PIPESTATUS[0]}"
           set -e
           unset linode_token
           echo "exitcode=${PLAN_EXIT}" >> "${GITHUB_OUTPUT}"
 
           if [ "${PLAN_EXIT}" -eq 1 ]; then
-            echo "::error::terraform plan failed with exit code 1"
+            echo "::error::private-network terraform plan failed with exit code 1"
             exit 1
           fi
 
       - name: "Reject private endpoint delete or replacement"
-        if: steps.plan.outputs.exitcode == '2'
+        if: steps.private-network-plan.outputs.exitcode == '2'
         env:
           ENVIRONMENT: ${{ matrix.environment }}
+        working-directory: terraform/argocd/${{ matrix.environment }}/private-network
         run: |
-          terraform show -json "${RUNNER_TEMP}/tfplan.${ENVIRONMENT}" \
-            | jq -e '
-                all(
-                  .resource_changes[]?
-                  | select(.address | test("module\\.argocd\\.(linode_networking_ip\\.argocd_private|kubernetes_service_v1\\.argocd_server_private|aws_ssm_parameter\\.argocd_endpoint_)"));
-                  (.change.actions | index("delete") | not)
-                )
-              ' >/dev/null || {
+          terraform show -json "${RUNNER_TEMP}/tfplan.private-network.${ENVIRONMENT}" \
+            | jq -e 'all(.resource_changes[]?; (.change.actions | index("delete") | not))' \
+              >/dev/null || {
                 echo "::error::Private endpoint plan contains delete or replacement"
                 exit 1
               }
@@ -238,29 +271,38 @@ jobs:
         if: always() && github.event_name == 'pull_request'
         env:
           PLAN_EXITCODE: ${{ steps.plan.outputs.exitcode }}
+          PRIVATE_NETWORK_PLAN_EXITCODE: ${{ steps.private-network-plan.outputs.exitcode }}
           ENVIRONMENT: ${{ matrix.environment }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const planFile = `${process.env.RUNNER_TEMP}/plan_output.txt`;
+            const privateNetworkPlanFile = `${process.env.RUNNER_TEMP}/plan_output.private-network.txt`;
             let planOutput = '(plan output not available)';
+            let privateNetworkPlanOutput = '(private-network plan output not available)';
             try { planOutput = fs.readFileSync(planFile, 'utf8'); } catch (_) {}
+            try { privateNetworkPlanOutput = fs.readFileSync(privateNetworkPlanFile, 'utf8'); } catch (_) {}
 
             const icon  = (r) => r === 'success' ? '✅' : r === 'skipped' ? '⏭️' : '❌';
             const env   = process.env.ENVIRONMENT;
             const exit  = process.env.PLAN_EXITCODE;
+            const privateNetworkExit = process.env.PRIVATE_NETWORK_PLAN_EXITCODE;
 
-            let planBadge;
-            if      (exit === '0') planBadge = '✅ No changes — infrastructure is up-to-date';
-            else if (exit === '2') planBadge = '⚠️ Changes detected — review before applying';
-            else                   planBadge = '❌ Plan failed — check the Actions log';
+            const planBadge = (code) => {
+              if (code === '0') return '✅ No changes — infrastructure is up-to-date';
+              if (code === '2') return '⚠️ Changes detected — review before applying';
+              return '❌ Plan failed — check the Actions log';
+            };
 
             // 截斷至 60 KB 以符合 GitHub comment 大小限制
             const MAX = 60_000;
             const safePlan = planOutput.length > MAX
               ? planOutput.slice(0, MAX) + '\n\n…(truncated — see full output in Actions run)'
               : planOutput;
+            const safePrivateNetworkPlan = privateNetworkPlanOutput.length > MAX
+              ? privateNetworkPlanOutput.slice(0, MAX) + '\n\n…(truncated — see full output in Actions run)'
+              : privateNetworkPlanOutput;
 
             const body = [
               `## 🔍 Terraform Plan — \`${env}\` environment`,
@@ -269,12 +311,21 @@ jobs:
               `|-------|--------|`,
               `| 📐 Format   | ${icon('${{ steps.fmt.outcome }}')} \`${{ steps.fmt.outcome }}\` |`,
               `| ✔️ Validate | ${icon('${{ steps.validate.outcome }}')} \`${{ steps.validate.outcome }}\` |`,
-              `| 📋 Plan     | ${planBadge} |`,
+              `| ✔️ Private-network validate | ${icon('${{ steps.validate-private-network.outcome }}')} \`${{ steps.validate-private-network.outcome }}\` |`,
+              `| 📋 ArgoCD state plan | ${planBadge(exit)} |`,
+              `| 📋 Private-network state plan | ${planBadge(privateNetworkExit)} |`,
               '',
-              `<details><summary>📄 Plan Output</summary>`,
+              `<details><summary>📄 ArgoCD State Plan Output</summary>`,
               '',
               '```hcl',
               safePlan,
+              '```',
+              '</details>',
+              '',
+              `<details><summary>📄 Private-Network State Plan Output</summary>`,
+              '',
+              '```hcl',
+              safePrivateNetworkPlan,
               '```',
               '</details>',
               '',
@@ -304,5 +355,5 @@ jobs:
 
       # ── 若 plan 失敗，讓整個 job 失敗 ────────────────────────────────────
       - name: "Fail job if plan errored"
-        if: steps.plan.outputs.exitcode == '1'
+        if: steps.plan.outputs.exitcode == '1' || steps.private-network-plan.outputs.exitcode == '1'
         run: exit 1

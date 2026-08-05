@@ -12,7 +12,7 @@
     "enabled": true,
     "environment": "prod",
     "linode_region": "ap-south",
-    "base_domain_parameter_name": "/gitops/platform-access/network/BASE_DOMAIN",
+    "internal_domain_parameter_name": "/gitops/platform-access/network/INTERNAL_DOMAIN",
     "vpn_public_egress_ip_parameter_name": "/gitops/platform-access/network/VPN_PUBLIC_EGRESS_IP",
     "endpoint_ip_parameter_name": "/gitops/prod/platform/argocd/ENDPOINT_IP",
     "endpoint_hostname_parameter_name": "/gitops/prod/platform/argocd/ENDPOINT_HOSTNAME",

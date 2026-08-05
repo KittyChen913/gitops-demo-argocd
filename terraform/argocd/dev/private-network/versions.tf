@@ -10,9 +10,9 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 2.36"
     }
-    kustomization = {
-      source  = "kbst/kustomization"
-      version = "~> 0.9"
+    linode = {
+      source  = "linode/linode"
+      version = "~> 4.1"
     }
   }
 }

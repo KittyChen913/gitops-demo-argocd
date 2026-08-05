@@ -16,6 +16,7 @@
 
 - `terraform/argocd/dev/`：dev 環境的正式 Terraform root，包含靜態 backend，並讀取 dev environment config。
 - `terraform/argocd/prod/`：prod 環境的正式 Terraform root，包含靜態 backend，並讀取 prod environment config。
+- `terraform/argocd/<environment>/private-network/`：Dev／Prod private entry 的獨立 Terraform root 與 state。
 - `terraform/argocd/environments/`：dev 與 prod 各自的共用 environment config，供 Terraform 與 GitHub Actions 讀取。
 - `terraform/modules/argocd/`：dev 與 prod 共用的 ArgoCD Terraform module。
 - `argocd/install/`：安裝 ArgoCD 的 Kustomize manifest。
@@ -45,9 +46,9 @@
 - SSM path prefix、Management/Worker Cluster labels、Root Application metadata 與 private network 非機密設定必須定義於 `terraform/argocd/environments/<environment>.json`，不得在 Terraform root、GitHub Variables 或 workflow 重複寫死。
 - dev 與 prod 必須使用獨立的 environment config；修改 prod 設定不得觸發 dev apply。
 - Root Application 設定的 `name` 必須與對應 manifest 的 `metadata.name` 一致。
-- `terraform/argocd/<environment>/backend.tf` 必須包含完整靜態 S3 backend 設定：`bucket`、`region`、`key`、`encrypt` 與 `use_lockfile`。
-- dev 與 prod state key 必須分別為 `gitops-demo-infra/dev/argocd/terraform.tfstate` 與 `gitops-demo-infra/prod/argocd/terraform.tfstate`。
-- Terraform init 必須直接在 `terraform/argocd/dev` 或 `terraform/argocd/prod` 執行，不得使用 `-backend-config` 動態注入 backend 值。
+- `terraform/argocd/<environment>/backend.tf` 與 `terraform/argocd/<environment>/private-network/backend.tf` 必須包含完整靜態 S3 backend 設定：`bucket`、`region`、`key`、`encrypt` 與 `use_lockfile`。
+- dev 與 prod 的 ArgoCD state key 必須分別為 `gitops-demo-infra/dev/argocd/terraform.tfstate` 與 `gitops-demo-infra/prod/argocd/terraform.tfstate`；private-network state key 必須分別為 `gitops-demo-infra/dev/argocd-private-network/terraform.tfstate` 與 `gitops-demo-infra/prod/argocd-private-network/terraform.tfstate`。
+- Terraform init 必須直接在 `terraform/argocd/<environment>` 或其 `private-network` root 執行，不得使用 `-backend-config` 動態注入 backend 值。
 - S3 State Bucket 必須由 repository 外部流程預先建立；本 repository 的 workflow 與 OIDC role 不得要求或使用 `s3:CreateBucket`。
 - Terraform state、plan、kubeconfig 與 `terraform.tfvars` 都不得提交。
 
@@ -72,7 +73,7 @@
 - `terraform-apply.yml` 僅供手動 override 使用。
 - 本repository不保留backend bootstrap workflow，也不建立、驗證或校正S3 State Bucket；bucket lifecycle與安全設定由repository外部owner負責。
 - Apply workflow 必須將部署分成依序執行的三個 Terraform job：安裝 ArgoCD、註冊 ArgoCD self-managed Application、註冊 ATeam Root Application。
-- 三個 ArgoCD Terraform job 必須使用相同環境的遠端 state，並透過 `_terraform-apply-stage.yml` 執行對應的 targeted plan/apply。
+- 三個 ArgoCD Terraform job 必須使用相同環境的 ArgoCD state，並透過 `_terraform-apply-stage.yml` 執行對應的 targeted plan/apply；`install` job 另對相同環境的 private-network state 執行完整、不帶 `-target` 的 plan/apply。
 - 僅修改文件時，不應觸發部署 workflow。
 
 跨Repository從零部署順序固定為：Cluster foundation → Platform Access → Cluster worker firewall convergence → Infra / ArgoCD → User Provisioning。
@@ -92,6 +93,14 @@
 - Management Cluster 只運行 ArgoCD；Worker Cluster 運行應用程式 workload。
 - 不得將 application layer manifest 加入本 repository。
 - 除非 workflow 明確用於驗證或緊急處理，否則不得為 Terraform 已處理的 bootstrap 行為手動加入 `kubectl apply` 步驟。
+
+## 安全與破壞性操作
+
+- 不要主動執行 `terraform apply`，或手動觸發 `terraform-apply-dev.yml`、`terraform-apply-prod.yml`、`terraform-apply.yml` 等會改變雲端／ArgoCD 狀態的命令，除非使用者明確要求。
+- 本 repository 沒有 destroy workflow；如需移除已建立的 ArgoCD 或 private network 資源，須先與使用者確認範圍與方式，不得自行以 `terraform destroy` 或等效手段執行。
+- 不要讀取、印出或提交 secret；若需確認 secret 是否存在，只回報存在與否。
+- 不要修改 Terraform state、遠端 S3 state 或 GitHub Environment protection 設定，除非使用者明確要求。
+- 不要回復使用者既有未提交變更；工作區已有變更時，先理解並在其上工作。
 
 ## 腳本與部署命令
 

@@ -87,7 +87,10 @@ data "aws_ssm_parameter" "vpn_public_egress_ip" {
 }
 
 locals {
-  internal_domain      = trimspace(data.aws_ssm_parameter.internal_domain.value)
+  # AWS provider 對 aws_ssm_parameter data source 的 value 一律標記為 sensitive，
+  # 不論 parameter type；internal_domain 只是網域名稱，非機密，故用 nonsensitive()
+  # 還原，讓 argocd_network_config output 能維持原設計的非機密 hand-off 契約。
+  internal_domain      = nonsensitive(trimspace(data.aws_ssm_parameter.internal_domain.value))
   argocd_internal_fqdn = "argocd.${local.private_network.environment}.internal.${local.internal_domain}"
   vpn_public_egress_ip = trimspace(data.aws_ssm_parameter.vpn_public_egress_ip.value)
 }

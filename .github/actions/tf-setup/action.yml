@@ -5,8 +5,9 @@
 #   2. AWS OIDC 認證（無需 stored access key）
 #   3. 在指定 component root 執行 terraform init（S3 遠端 backend）
 #
-# 被 terraform-plan.yml 與 _terraform-apply-stage.yml 呼叫。
-# kubectl 安裝由各 caller 自行負責（apply 需要，plan 不需要）。
+# 被 terraform-plan.yml、_terraform-apply-stage.yml 與
+# _terraform-destroy-stage.yml 呼叫。
+# kubectl 安裝由各 caller 自行負責（apply 需要，plan／destroy 不需要）。
 
 name: "Terraform Setup"
 description: "Setup Terraform, authenticate with AWS OIDC, and initialise S3 remote backend"

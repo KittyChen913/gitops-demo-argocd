@@ -1,0 +1,143 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Terraform Destroy - 手動 Pipeline
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# ⚠️  這是破壞性操作：會移除已透過 terraform-apply-dev.yml／terraform-apply-prod.yml
+#     建立的 ArgoCD 與 GitOps 資源。只能透過 workflow_dispatch 手動觸發，
+#     不會被 push、tag 或 PR 事件自動觸發。
+#
+# 涵蓋範圍：
+#   destroy 選定環境 apply 所建立的四個獨立 Terraform root，
+#   依 apply 的完全相反順序執行：
+#     1. ateam            （ATeam Root Application，GitOps 入口）
+#     2. self-manage       （ArgoCD self-managed Application）
+#     3. private-network   （Reserved IPv4、companion Service、兩個 endpoint
+#                            SSM parameter）
+#     4. install           （ArgoCD 本體：namespace／RBAC／Worker Cluster Secret）
+#
+#   四個 root 各自獨立 state，destroy 完全不帶 -target；stage 之間的順序
+#   由這個 workflow 的 needs 鏈保證，不靠 Terraform 跨 state 的 depends_on。
+#   install 必須排在最後：argocd namespace 由它擁有，提前移除會讓前面三個
+#   stage 的 Kubernetes 物件被連帶刪除，造成 state 與實際資源不一致。
+#
+# 安全設計：
+#   - 僅 workflow_dispatch 觸發，需要人工在 Actions 頁面手動選擇環境並執行。
+#   - 與同環境的 apply workflow 共用同一個 concurrency group，避免 destroy
+#     與 apply 同時對同一份 state 操作。
+#   - Job 沿用與 apply 相同的 GitHub Environment context（dev／prod），因此
+#     若該 Environment 已設定 required reviewer（例如既有的 prod），這個
+#     workflow 也會套用同一組保護規則；這是既有架構的延伸，本 workflow
+#     未額外新增任何確認步驟或 approval gate。
+#
+# ⚠️  跨 Repository 影響：
+#   private-network stage 會移除
+#   /gitops/<environment>/platform/argocd/ENDPOINT_IP 與 ENDPOINT_HOSTNAME
+#   這兩個供 gitops-demo-platform-access 讀取的 contract parameters。
+#   另一方向的依賴同樣存在：這個 root 會讀取 Platform Access 發布的
+#   INTERNAL_DOMAIN 與 VPN_PUBLIC_EGRESS_IP，兩者若已先行移除，destroy 會
+#   在 data source 讀取階段就失敗。teardown 必須在 Platform Access 之前執行。
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: "🗑️ Terraform Destroy [Manual]"
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment to destroy"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+
+# 最小化 token 權限
+permissions:
+  contents: read
+  id-token: write
+
+# 與同環境的 apply workflow 共用同一個 concurrency group
+# （terraform-apply-dev.yml / terraform-apply-prod.yml 分別使用
+# "tf-apply-dev" / "tf-apply-prod"），避免 destroy 與 apply 交錯執行。
+concurrency:
+  group: "tf-apply-${{ inputs.environment }}"
+  cancel-in-progress: false
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Job 1：前置檢查與觸發紀錄（audit trail，不阻擋執行）
+  # ────────────────────────────────────────────────────────────────────────────
+  trigger-info:
+    name: "Validate Prerequisites"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Validate OIDC prerequisites"
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+        run: |
+          if [ -z "${AWS_ACCOUNT_ID}" ]; then
+            echo "::error title=Missing Secret::AWS_ACCOUNT_ID repository secret is not configured"
+            echo "See README.md → CI/CD Configuration"
+            exit 1
+          fi
+          echo "AWS Account ID configured ✓"
+
+      - name: "Write trigger summary"
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          {
+            echo "## 🗑️ Manual Destroy Trigger"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Environment | \`${TARGET_ENVIRONMENT}\` |"
+            echo "| Actor | @${ACTOR} |"
+            echo "| Run ID | \`${{ github.run_id }}\` |"
+            echo "| Timestamp | $(date -u +%Y-%m-%dT%H:%M:%SZ) |"
+            echo ""
+            echo "> Destroy order: ateam → self-manage → private-network → install."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Jobs 2-5：依 apply 的相反順序分階段執行 destroy
+  # ────────────────────────────────────────────────────────────────────────────
+  destroy-ateam:
+    name: "1. Destroy ATeam Root Application [${{ inputs.environment }}]"
+    needs: trigger-info
+    uses: ./.github/workflows/_terraform-destroy-stage.yml
+    with:
+      environment: ${{ inputs.environment }}
+      stage: ateam
+    secrets: inherit
+
+  destroy-self-manage:
+    name: "2. Destroy Self-Managed ArgoCD Application [${{ inputs.environment }}]"
+    needs: destroy-ateam
+    uses: ./.github/workflows/_terraform-destroy-stage.yml
+    with:
+      environment: ${{ inputs.environment }}
+      stage: self-manage
+    secrets: inherit
+
+  destroy-private-network:
+    name: "3. Destroy Private ArgoCD Endpoint [${{ inputs.environment }}]"
+    needs: destroy-self-manage
+    uses: ./.github/workflows/_terraform-destroy-stage.yml
+    with:
+      environment: ${{ inputs.environment }}
+      stage: private-network
+    secrets: inherit
+
+  # install 必須最後執行：它擁有 argocd namespace，先移除會讓前面三個 stage
+  # 的 Kubernetes 物件連同 namespace 一起消失，state 與實際資源就會不一致。
+  destroy-install:
+    name: "4. Destroy ArgoCD Install [${{ inputs.environment }}]"
+    needs: destroy-private-network
+    uses: ./.github/workflows/_terraform-destroy-stage.yml
+    with:
+      environment: ${{ inputs.environment }}
+      stage: install
+    secrets: inherit

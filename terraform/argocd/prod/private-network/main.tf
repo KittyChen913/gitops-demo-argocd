@@ -97,15 +97,18 @@ locals {
 
 # Dev／Prod 各自的 state 擁有一個專用 Reserved IPv4。CCM 只負責把該位址綁到
 # companion Service 所建立的 NodeBalancer，不從 versioned config 複製 public IP。
+#
+# 這個 root 的資源原本設有 lifecycle.prevent_destroy，但該設定只接受 literal
+# 值（無法以 variable 開關），會讓 terraform-destroy.yml 完全無法執行。改為
+# 移除 prevent_destroy，apply path 的刪除保護改由 CI plan guard 負責：
+# terraform-plan.yml 與 _terraform-apply-stage.yml 的「Reject private endpoint
+# delete or replacement」step 仍會拒絕任何含 delete／replacement 的 plan。
+# 刻意的移除只能透過手動觸發的 terraform-destroy.yml 進行。
 resource "linode_networking_ip" "argocd_private" {
   type     = "ipv4"
   public   = true
   reserved = true
   region   = local.private_network.linode_region
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 # 專用的 VPN-only 入口。既有 argocd-server ClusterIP Service 由 ArgoCD Kustomize
@@ -158,8 +161,6 @@ resource "kubernetes_service_v1" "argocd_server_private" {
   }
 
   lifecycle {
-    prevent_destroy = true
-
     precondition {
       condition = (
         can(cidrnetmask("${local.vpn_public_egress_ip}/32")) &&
@@ -173,23 +174,18 @@ resource "kubernetes_service_v1" "argocd_server_private" {
 }
 
 # Endpoint publication 是非敏感的跨 Repository 介面。Platform Access 只讀取這兩個
-# parameter，不讀取 infra state；prevent_destroy 避免默默刪除 contract。
+# parameter，不讀取 infra state。這兩個 parameter 同樣移除了 prevent_destroy；
+# 意外刪除由 CI plan guard 擋下，刻意刪除走 terraform-destroy.yml。
+# 注意：destroy 這個 root 會一併移除下列 contract parameters，Platform Access
+# 端的 internal DNS 發布會失去來源，teardown 順序請見 docs/ci-cd.md。
 resource "aws_ssm_parameter" "argocd_endpoint_ip" {
   name  = local.private_network.endpoint_ip_parameter_name
   type  = "String"
   value = linode_networking_ip.argocd_private.address
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "aws_ssm_parameter" "argocd_endpoint_hostname" {
   name  = local.private_network.endpoint_hostname_parameter_name
   type  = "String"
   value = local.argocd_internal_fqdn
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

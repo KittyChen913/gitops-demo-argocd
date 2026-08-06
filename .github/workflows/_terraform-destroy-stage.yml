@@ -1,0 +1,193 @@
+name: "_Terraform Destroy Stage"
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (dev | prod)"
+        required: true
+        type: string
+      stage:
+        description: "Terraform root to destroy (install | self-manage | ateam | private-network)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  destroy-stage:
+    name: "${{ inputs.stage }} [${{ inputs.environment }}]"
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    # 四個 root 各自獨立 state（terraform/argocd/<environment>/<stage>/），destroy
+    # 的執行順序完全由呼叫端 workflow（terraform-destroy.yml）的 needs 鏈保證，
+    # 與 apply 完全相反：ateam → self-manage → private-network → install。
+    defaults:
+      run:
+        working-directory: terraform/argocd/${{ inputs.environment }}/${{ inputs.stage }}
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v6
+
+      - name: "Validate deployment stage"
+        env:
+          DEPLOY_STAGE: ${{ inputs.stage }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          case "${ENVIRONMENT}" in
+            dev|prod) ;;
+            *)
+              echo "::error::Unsupported environment: ${ENVIRONMENT}"
+              exit 1
+              ;;
+          esac
+
+          case "${DEPLOY_STAGE}" in
+            install|self-manage|ateam|private-network) ;;
+            *)
+              echo "::error::Unsupported deployment stage: ${DEPLOY_STAGE}"
+              exit 1
+              ;;
+          esac
+
+      - name: "Load environment configuration"
+        id: environment-config
+        uses: ./.github/actions/load-environment-config
+        with:
+          environment: ${{ inputs.environment }}
+
+      - name: "Terraform Setup (init + AWS auth)"
+        uses: ./.github/actions/tf-setup
+        with:
+          environment: ${{ inputs.environment }}
+          component: ${{ inputs.stage }}
+          aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
+
+      - name: "Resolve automation VPN targets"
+        id: automation-vpn-targets
+        shell: bash
+        env:
+          MGMT_API_PARAMETER: ${{ steps.environment-config.outputs.mgmt_api_parameter }}
+        run: |
+          set -euo pipefail
+          endpoint="$(aws ssm get-parameter \
+            --name "${MGMT_API_PARAMETER}" \
+            --query Parameter.Value \
+            --output text)"
+          test -n "${endpoint}"
+          endpoint_host="${endpoint#*://}"
+          endpoint_host="${endpoint_host%%/*}"
+          endpoint_host="${endpoint_host%%:*}"
+          {
+            echo "route_targets<<EOF"
+            echo "${endpoint}"
+            echo "EOF"
+            echo "health_targets<<EOF"
+            echo "${endpoint_host}:443"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: "Open automation VPN tunnel"
+        id: automation-vpn
+        uses: ./.github/actions/open-automation-vpn-tunnel
+        with:
+          identity: ${{ steps.environment-config.outputs.automation_vpn_identity }}
+          profile-ssm-parameter: ${{ steps.environment-config.outputs.automation_vpn_profile_parameter }}
+          password-ssm-parameter: ${{ steps.environment-config.outputs.automation_vpn_password_parameter }}
+          expected-tunnel-ip: ${{ steps.environment-config.outputs.automation_vpn_expected_tunnel_ip }}
+          route-targets: ${{ steps.automation-vpn-targets.outputs.route_targets }}
+          health-targets: ${{ steps.automation-vpn-targets.outputs.health_targets }}
+
+      # Repository 規範要求共用 SSM provider token 必須透過既有 composite
+      # action 取得。精確讀取單一 parameter，避免載入 /gitops/shared 下其他值；
+      # 緊鄰唯一 consumer 執行，destroy 完成後立即清空 job environment。
+      - name: "Load Linode provider token"
+        if: inputs.stage == 'private-network'
+        uses: ./.github/actions/get-ssm-parameters
+        with:
+          ssm_param_name: /gitops/shared/LINODE_TOKEN
+
+      # install root 沿用 apply 既有的 -refresh=false 例外（ArgoCD 自我管理後，
+      # refresh 會讀到 kbst provider 缺失的 last-applied annotation；destroy 若
+      # 讓 refresh 把空 manifest 寫回 state，該 stage 會誤判為無資源可移除）。
+      #
+      # private-network root 原本的 lifecycle.prevent_destroy 已移除（該設定只
+      # 接受 literal 值，無法以 variable 開關），因此四個 stage 都能正常完成；
+      # apply path 的刪除保護改由 plan guard 負責，見 terraform-plan.yml 與
+      # _terraform-apply-stage.yml 的「Reject ... delete or replacement」step。
+      #
+      # private-network 另外需要 LINODE_TOKEN。前一個 conditional step 透過
+      # get-ssm-parameters 精確讀取並 mask；此 step 是唯一 consumer，執行後
+      # 立即覆寫 GITHUB_ENV 並 unset，避免 token 傳入 tunnel cleanup／summary。
+      - name: "Terraform Destroy (${{ inputs.stage }})"
+        id: destroy
+        env:
+          DEPLOY_STAGE: ${{ inputs.stage }}
+          TF_IN_AUTOMATION: "true"
+        run: |
+          set -euo pipefail
+          REFRESH_ARGS=()
+          if [ "${DEPLOY_STAGE}" = "install" ]; then
+            REFRESH_ARGS=("-refresh=false")
+          fi
+
+          if [ "${DEPLOY_STAGE}" = "private-network" ]; then
+            if [ -z "${LINODE_TOKEN:-}" ]; then
+              echo "::error::The Linode provider token from SSM is empty"
+              exit 1
+            fi
+          fi
+
+          set +e
+          terraform destroy \
+            "${REFRESH_ARGS[@]}" \
+            -auto-approve \
+            -no-color \
+            -input=false \
+            2>&1 | grep -v -iE "^[[:space:]]*[^=]*(token|secret|password)[^=]*=" \
+            | tee "${RUNNER_TEMP}/destroy-output.${DEPLOY_STAGE}.txt"
+          DESTROY_EXIT="${PIPESTATUS[0]}"
+          set -e
+
+          if [ "${DEPLOY_STAGE}" = "private-network" ]; then
+            echo "LINODE_TOKEN=" >> "${GITHUB_ENV}"
+            unset LINODE_TOKEN
+          fi
+
+          if [ "${DESTROY_EXIT}" -ne 0 ]; then
+            echo "::error::terraform destroy failed for stage ${DEPLOY_STAGE}"
+            exit "${DESTROY_EXIT}"
+          fi
+
+      - name: "Close automation VPN tunnel"
+        if: ${{ always() && steps.automation-vpn.outputs['state-directory'] != '' }}
+        uses: ./.github/actions/close-automation-vpn-tunnel
+        with:
+          state-directory: ${{ steps.automation-vpn.outputs['state-directory'] }}
+
+      - name: "Write stage summary"
+        if: always()
+        env:
+          DESTROY_OUTCOME: ${{ steps.destroy.outcome }}
+          DEPLOY_STAGE: ${{ inputs.stage }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          if [ "${DESTROY_OUTCOME}" = "success" ]; then
+            STATUS="Destroyed"
+          else
+            STATUS="Failed"
+          fi
+
+          {
+            echo "## Terraform Destroy Stage: \`${DEPLOY_STAGE}\`"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Environment | \`${ENVIRONMENT}\` |"
+            echo "| Status | ${STATUS} |"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+          } >> "${GITHUB_STEP_SUMMARY}"

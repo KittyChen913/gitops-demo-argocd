@@ -4,7 +4,12 @@ description: "Retrieves parameters from AWS SSM Parameter Store and sets them as
 inputs:
   ssm_param_path:
     description: "Path to the SSM Parameter Store"
-    required: true
+    required: false
+    default: ""
+  ssm_param_name:
+    description: "Exact SSM parameter name to retrieve"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -13,28 +18,51 @@ runs:
       shell: bash
       env:
         SSM_PARAM_PATH: ${{ inputs.ssm_param_path }}
+        SSM_PARAM_NAME: ${{ inputs.ssm_param_name }}
       run: |
-        params=$(aws ssm get-parameters-by-path \
-          --path "${SSM_PARAM_PATH}" \
-          --recursive \
-          --with-decryption \
-          --query "Parameters[*].{Name:Name,Value:Value}" \
-          --output text)
+        set -euo pipefail
+
+        if [[ -n "${SSM_PARAM_PATH}" && -n "${SSM_PARAM_NAME}" ]] || \
+          [[ -z "${SSM_PARAM_PATH}" && -z "${SSM_PARAM_NAME}" ]]; then
+          echo "::error::Exactly one of ssm_param_path or ssm_param_name must be provided"
+          exit 1
+        fi
+
+        if [[ -n "${SSM_PARAM_NAME}" ]]; then
+          parameter_value="$(aws ssm get-parameter \
+            --name "${SSM_PARAM_NAME}" \
+            --with-decryption \
+            --query "Parameter.Value" \
+            --output text)"
+          params="$(printf '%s\t%s' "${SSM_PARAM_NAME}" "${parameter_value}")"
+        else
+          params="$(aws ssm get-parameters-by-path \
+            --path "${SSM_PARAM_PATH}" \
+            --recursive \
+            --with-decryption \
+            --query "Parameters[*].{Name:Name,Value:Value}" \
+            --output text)"
+        fi
 
         param_count=0
         while read -r name value; do
-          if [[ -n "$name" && -n "$value" ]]; then
-            var_name=$(echo "$name" | awk -F'/' '{print $NF}')
-            upper_key=$(echo "$var_name" | tr '[:lower:]-' '[:upper:]_')
-            echo "::add-mask::$value"
-            echo "Found parameter: $upper_key"
-            echo "${upper_key}=${value}" >> "$GITHUB_ENV"
+          if [[ -n "${name}" && -n "${value}" ]]; then
+            var_name="${name##*/}"
+            upper_key="$(printf '%s' "${var_name}" | tr '[:lower:]-' '[:upper:]_')"
+            if [[ ! "${upper_key}" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+              echo "::error::SSM parameter cannot be mapped to an environment variable: ${name}"
+              exit 1
+            fi
+            echo "::add-mask::${value}"
+            echo "Found parameter: ${upper_key}"
+            echo "${upper_key}=${value}" >> "${GITHUB_ENV}"
             param_count=$((param_count + 1))
           fi
-        done <<< "$params"
+        done <<< "${params}"
 
-        if [[ $param_count -gt 0 ]]; then
-          echo "✓ Successfully retrieved $param_count SSM parameters"
+        if [[ ${param_count} -gt 0 ]]; then
+          echo "Successfully retrieved ${param_count} SSM parameter(s)"
         else
-          echo "⚠ No SSM parameters found"
+          echo "::error::No SSM parameters found"
+          exit 1
         fi

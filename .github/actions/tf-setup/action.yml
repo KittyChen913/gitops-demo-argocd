@@ -3,9 +3,9 @@
 # 用途：統一處理所有 Terraform 執行前的準備步驟：
 #   1. 安裝 Terraform binary
 #   2. AWS OIDC 認證（無需 stored access key）
-#   3. terraform init（S3 遠端 backend）
+#   3. 在指定 component root 執行 terraform init（S3 遠端 backend）
 #
-# 被 terraform-plan.yml 與 terraform-apply.yml 呼叫。
+# 被 terraform-plan.yml 與 _terraform-apply-stage.yml 呼叫。
 # kubectl 安裝由各 caller 自行負責（apply 需要，plan 不需要）。
 
 name: "Terraform Setup"
@@ -14,6 +14,9 @@ description: "Setup Terraform, authenticate with AWS OIDC, and initialise S3 rem
 inputs:
   environment:
     description: "Target environment (dev | prod)"
+    required: true
+  component:
+    description: "Terraform component (install | self-manage | ateam | private-network)"
     required: true
   aws-account-id:
     description: "AWS Account ID (stored as Repository Secret secrets.AWS_ACCOUNT_ID)"
@@ -62,6 +65,7 @@ runs:
       env:
         TF_IN_AUTOMATION: "true"
         TF_ENV: ${{ inputs.environment }}
+        TF_COMPONENT: ${{ inputs.component }}
       run: |
         case "${TF_ENV}" in
           dev|prod) ;;
@@ -71,7 +75,15 @@ runs:
             ;;
         esac
 
-        TF_ROOT="terraform/argocd/${TF_ENV}"
+        case "${TF_COMPONENT}" in
+          install|self-manage|ateam|private-network) ;;
+          *)
+            echo "::error::Unsupported Terraform component: ${TF_COMPONENT}"
+            exit 1
+            ;;
+        esac
+
+        TF_ROOT="terraform/argocd/${TF_ENV}/${TF_COMPONENT}"
 
         if [ ! -f "${TF_ROOT}/backend.tf" ]; then
           echo "::error::Terraform backend not found: ${TF_ROOT}/backend.tf"

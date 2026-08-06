@@ -22,9 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
 
+    # 每個 stage 現在是自己獨立的 Terraform root／state
+    # （terraform/argocd/<environment>/<stage>/），不再是同一份 state 用
+    # -target 切割。三個 root 之間的順序完全由呼叫端 workflow 的
+    # needs 鏈保證（install → self-manage → ateam），不靠 Terraform
+    # 跨 state 的 depends_on。
     defaults:
       run:
-        working-directory: terraform/argocd/${{ inputs.environment }}
+        working-directory: terraform/argocd/${{ inputs.environment }}/${{ inputs.stage }}
 
     steps:
       - name: "Checkout"
@@ -61,6 +66,7 @@ jobs:
         uses: ./.github/actions/tf-setup
         with:
           environment: ${{ inputs.environment }}
+          component: ${{ inputs.stage }}
           aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
 
       - name: "Resolve automation VPN targets"
@@ -105,63 +111,10 @@ jobs:
           route-targets: ${{ steps.automation-vpn-targets.outputs.route_targets }}
           health-targets: ${{ steps.automation-vpn-targets.outputs.health_targets }}
 
-      - name: "Settle ArgoCD install dependencies"
-        id: install-prerequisites
-        if: inputs.stage == 'install'
-        env:
-          TF_IN_AUTOMATION: "true"
-        run: |
-          PREREQUISITE_CHANGED="false"
-          INSTALL_TARGETS=(
-            "module.argocd.kubernetes_namespace_v1.argocd"
-            "module.argocd.kustomization_resource.argocd_p0"
-            "module.argocd.kustomization_resource.argocd_p1"
-          )
-
-          for INDEX in "${!INSTALL_TARGETS[@]}"; do
-            TARGET="${INSTALL_TARGETS[INDEX]}"
-            PLAN_FILE="${RUNNER_TEMP}/tfplan.install-prerequisite-${INDEX}"
-
-            set +e
-            terraform plan \
-              -refresh=false \
-              "-target=${TARGET}" \
-              -out="${PLAN_FILE}" \
-              -no-color \
-              -detailed-exitcode \
-              -input=false \
-              2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
-              | tee "${RUNNER_TEMP}/plan-output.install-prerequisite-${INDEX}.txt"
-            PLAN_EXIT="${PIPESTATUS[0]}"
-            set -e
-
-            if [ "${PLAN_EXIT}" -eq 1 ]; then
-              echo "::error::terraform plan failed for install prerequisite ${TARGET}"
-              exit 1
-            fi
-
-            if [ "${PLAN_EXIT}" -eq 2 ]; then
-              PREREQUISITE_CHANGED="true"
-              set +e
-              terraform apply \
-                -auto-approve \
-                -input=false \
-                -no-color \
-                "${PLAN_FILE}" \
-                2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
-                | tee "${RUNNER_TEMP}/apply-output.install-prerequisite-${INDEX}.txt"
-              APPLY_EXIT="${PIPESTATUS[0]}"
-              set -e
-
-              if [ "${APPLY_EXIT}" -ne 0 ]; then
-                echo "::error::terraform apply failed for install prerequisite ${TARGET}"
-                exit "${APPLY_EXIT}"
-              fi
-            fi
-          done
-
-          echo "changed=${PREREQUISITE_CHANGED}" >> "${GITHUB_OUTPUT}"
-
+      # 完整、不帶 -target 的 plan。install stage 沿用既有的 -refresh=false
+      # （install 資源交由 ArgoCD 自我管理後，refresh 會讀到 kbst provider
+      # 缺失的 last-applied annotation）；self-manage／ateam 兩個 root 本來
+      # 就不需要這個例外。
       - name: "Terraform Plan (${{ inputs.stage }})"
         id: plan
         env:
@@ -169,31 +122,12 @@ jobs:
           TF_IN_AUTOMATION: "true"
         run: |
           REFRESH_ARGS=()
-
-          case "${DEPLOY_STAGE}" in
-            install)
-              TARGET_ARGS=(
-                "-target=module.argocd.kustomization_resource.argocd_p2"
-              )
-              # Install resources 已交由 ArgoCD 管理，避免 refresh 讀取
-              # kbst provider 缺失的 last-applied annotation。
-              REFRESH_ARGS=("-refresh=false")
-              ;;
-            self-manage)
-              TARGET_ARGS=(
-                "-target=module.argocd.kustomization_resource.argocd_self_app"
-              )
-              ;;
-            ateam)
-              TARGET_ARGS=(
-                "-target=module.argocd.kustomization_resource.argocd_root_app"
-              )
-              ;;
-          esac
+          if [ "${DEPLOY_STAGE}" = "install" ]; then
+            REFRESH_ARGS=("-refresh=false")
+          fi
 
           set +e
           terraform plan \
-            "${TARGET_ARGS[@]}" \
             "${REFRESH_ARGS[@]}" \
             -out="${RUNNER_TEMP}/tfplan.${DEPLOY_STAGE}" \
             -no-color \
@@ -213,15 +147,25 @@ jobs:
         if: steps.plan.outputs.exitcode == '0'
         env:
           DEPLOY_STAGE: ${{ inputs.stage }}
-          PREREQUISITE_CHANGED: ${{ steps.install-prerequisites.outputs.changed }}
         run: |
-          if [ "${PREREQUISITE_CHANGED}" = "true" ]; then
-            echo "Install prerequisites applied; no priority 2 changes detected."
-            echo "## Prerequisites Applied: \`${DEPLOY_STAGE}\`" >> "${GITHUB_STEP_SUMMARY}"
-          else
-            echo "No changes detected for ${DEPLOY_STAGE}; skipping apply."
-            echo "## No Changes: \`${DEPLOY_STAGE}\`" >> "${GITHUB_STEP_SUMMARY}"
-          fi
+          echo "No changes detected for ${DEPLOY_STAGE}; skipping apply."
+          echo "## No Changes: \`${DEPLOY_STAGE}\`" >> "${GITHUB_STEP_SUMMARY}"
+
+      # 拆成獨立 state 後，單一 apply 的 blast radius 比以前的窄 -target
+      # 更大（例如 install root 一次涵蓋 namespace／p0/p1/p2／worker cluster
+      # secret）。新增這道 guard，比照 private-network root 既有的作法，
+      # 拒絕任何包含 delete 或 replacement 的 plan，需要人工介入才能繼續。
+      - name: "Reject delete or replacement"
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          DEPLOY_STAGE: ${{ inputs.stage }}
+        run: |
+          terraform show -json "${RUNNER_TEMP}/tfplan.${DEPLOY_STAGE}" \
+            | jq -e 'all(.resource_changes[]?; (.change.actions | index("delete") | not))' \
+              >/dev/null || {
+                echo "::error::${DEPLOY_STAGE} plan contains delete or replacement; a human must review before this can proceed"
+                exit 1
+              }
 
       - name: "Terraform Apply (${{ inputs.stage }})"
         id: apply
@@ -246,8 +190,7 @@ jobs:
           fi
 
       # private-network 是獨立 root／獨立 state（terraform/argocd/<env>/private-network），
-      # 不再對 install stage 共用的 state 做 -target 切割；這裡是完整、不帶 -target 的
-      # plan/apply，只作用在這個 root 自己的 state。
+      # 完整、不帶 -target 的 plan/apply，只作用在這個 root 自己的 state。
       - name: "Reconcile private ArgoCD endpoint"
         if: inputs.stage == 'install'
         env:
@@ -289,11 +232,21 @@ jobs:
                     echo "::error::Private endpoint plan contains delete or replacement"
                     exit 1
                   }
+              set +e
               LINODE_TOKEN="${linode_token}" terraform apply \
                 -auto-approve \
                 -input=false \
                 -no-color \
-                "${PLAN_FILE}"
+                "${PLAN_FILE}" \
+                2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
+                | tee "${RUNNER_TEMP}/apply-output.private-endpoint.txt"
+              APPLY_EXIT="${PIPESTATUS[0]}"
+              set -e
+
+              if [ "${APPLY_EXIT}" -ne 0 ]; then
+                echo "::error::terraform apply failed for the private endpoint"
+                exit "${APPLY_EXIT}"
+              fi
               ;;
             *)
               echo "::error::terraform plan failed for the private endpoint"
@@ -314,11 +267,8 @@ jobs:
           DEPLOY_STAGE: ${{ inputs.stage }}
           ENVIRONMENT: ${{ inputs.environment }}
           PLAN_EXIT: ${{ steps.plan.outputs.exitcode }}
-          PREREQUISITE_CHANGED: ${{ steps.install-prerequisites.outputs.changed }}
         run: |
-          if [ "${PREREQUISITE_CHANGED}" = "true" ] && [ "${PLAN_EXIT}" = "0" ]; then
-            STATUS="Success"
-          elif [ "${PLAN_EXIT}" = "0" ]; then
+          if [ "${PLAN_EXIT}" = "0" ]; then
             STATUS="No changes"
           elif [ "${APPLY_OUTCOME}" = "success" ]; then
             STATUS="Success"

@@ -7,10 +7,10 @@
 # 行為：
 #   1. 偵測目標 environment（依 PR label: env:dev / env:prod，預設 dev）
 #   2. terraform fmt --check
-#   3. terraform validate（ArgoCD 與 private-network 兩個 root）
-#   4. 對兩份獨立 state 執行 terraform plan（-detailed-exitcode，不 apply）
+#   3. terraform validate（install／self-manage／ateam／private-network 四個獨立 root）
+#   4. 對四份獨立 state 執行 terraform plan（-detailed-exitcode，不 apply）
 #   5. 將 plan 結果以 comment 貼回 PR
-#   6. 若有變更，上傳 plan artifact（供審閱與除錯保留）
+#   6. Binary plan 僅保留在 ephemeral Runner，不上傳 artifact
 #
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │  文件變更處理                                                           │
@@ -26,6 +26,9 @@
 #   - prod plan 需明確標 PR label "env:prod"，避免非預期觸發
 #   - Plan output 經過截斷，避免 sensitive output 超長洩漏
 #   - AWS credentials 透過 OIDC（無 stored secret key）
+#   - install／self-manage／ateam／private-network 四個 root 各自獨立 state，
+#     互不使用 -target；每個 root 的 plan 若含 delete/replacement 會直接
+#     擋下 PR（見各自的 "Reject ... delete or replacement" step）。
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: "🔍 Terraform Plan"
@@ -130,6 +133,7 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
   # Job 2：Terraform Plan（matrix：每個 environment 獨立執行）
+  # 四個獨立 root／state：install、self-manage、ateam、private-network。
   # ────────────────────────────────────────────────────────────────────────────
   plan:
     name: "Plan [${{ matrix.environment }}]"
@@ -147,31 +151,30 @@ jobs:
       - name: "Checkout"
         uses: actions/checkout@v6
 
-      # ── Terraform 設定、AWS OIDC 與 terraform init ────────────────────────
+      # ── Terraform 設定、AWS OIDC 與 terraform init（install root）────────
       - name: "Terraform Setup (init + AWS auth)"
         uses: ./.github/actions/tf-setup
         with:
           environment: ${{ matrix.environment }}
+          component: install
           aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
 
-      # ── fmt 檢查 ───────────────────────────────────────────────────────────
+      # ── fmt 檢查（一次檢查整個 terraform/ 樹，涵蓋四個 root）───────────────
       - name: "Terraform Format Check"
         id: fmt
         run: terraform fmt -check -recursive -diff "${GITHUB_WORKSPACE}/terraform"
 
-      # ── 驗證 ───────────────────────────────────────────────────────────────
-      - name: "Terraform Validate"
-        id: validate
-        run: terraform validate -no-color
+      # ══════════════════════════ install root ══════════════════════════════
+      - name: "Terraform Validate (install)"
+        id: validate-install
+        working-directory: terraform/argocd/${{ matrix.environment }}/install
         env:
           TF_IN_AUTOMATION: "true"
+        run: terraform validate -no-color
 
-      # ── 規劃 ───────────────────────────────────────────────────────────────
-      # -detailed-exitcode：0 表示無變更、1 表示錯誤、2 表示有變更
-      # Install resources 由 ArgoCD 自我管理，因此不 refresh kbst live state。
-      # plan artifact 儲存在 $RUNNER_TEMP（不在 working-dir）避免意外提交
-      - name: "Terraform Plan"
-        id: plan
+      - name: "Terraform Plan (install)"
+        id: install-plan
+        working-directory: terraform/argocd/${{ matrix.environment }}/install
         env:
           TF_IN_AUTOMATION: "true"
           ENVIRONMENT: ${{ matrix.environment }}
@@ -180,21 +183,135 @@ jobs:
           set +e
           terraform plan \
             -refresh=false \
-            -out="${{ runner.temp }}/tfplan.${ENVIRONMENT}" \
+            -out="${RUNNER_TEMP}/tfplan.install.${ENVIRONMENT}" \
             -no-color \
             -detailed-exitcode \
             -input=false \
             2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
-            | tee "${{ runner.temp }}/plan_output.txt"
+            | tee "${RUNNER_TEMP}/plan_output.install.txt"
           PLAN_EXIT="${PIPESTATUS[0]}"
           set -e
           echo "exitcode=${PLAN_EXIT}" >> "${GITHUB_OUTPUT}"
 
           if [ "${PLAN_EXIT}" -eq 1 ]; then
-            echo "::error::terraform plan failed with exit code 1"
+            echo "::error::install terraform plan failed with exit code 1"
             exit 1
           fi
 
+      - name: "Reject install delete or replacement"
+        if: steps.install-plan.outputs.exitcode == '2'
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+        working-directory: terraform/argocd/${{ matrix.environment }}/install
+        run: |
+          terraform show -json "${RUNNER_TEMP}/tfplan.install.${ENVIRONMENT}" \
+            | jq -e 'all(.resource_changes[]?; (.change.actions | index("delete") | not))' \
+              >/dev/null || {
+                echo "::error::install plan contains delete or replacement"
+                exit 1
+              }
+
+      # ══════════════════════════ self-manage root ═══════════════════════════
+      - name: "Terraform Init (self-manage)"
+        working-directory: terraform/argocd/${{ matrix.environment }}/self-manage
+        run: terraform init -reconfigure -input=false
+
+      - name: "Terraform Validate (self-manage)"
+        id: validate-self-manage
+        working-directory: terraform/argocd/${{ matrix.environment }}/self-manage
+        env:
+          TF_IN_AUTOMATION: "true"
+        run: terraform validate -no-color
+
+      - name: "Terraform Plan (self-manage)"
+        id: self-manage-plan
+        working-directory: terraform/argocd/${{ matrix.environment }}/self-manage
+        env:
+          TF_IN_AUTOMATION: "true"
+          ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          set -euo pipefail
+          set +e
+          terraform plan \
+            -out="${RUNNER_TEMP}/tfplan.self-manage.${ENVIRONMENT}" \
+            -no-color \
+            -detailed-exitcode \
+            -input=false \
+            2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
+            | tee "${RUNNER_TEMP}/plan_output.self-manage.txt"
+          PLAN_EXIT="${PIPESTATUS[0]}"
+          set -e
+          echo "exitcode=${PLAN_EXIT}" >> "${GITHUB_OUTPUT}"
+
+          if [ "${PLAN_EXIT}" -eq 1 ]; then
+            echo "::error::self-manage terraform plan failed with exit code 1"
+            exit 1
+          fi
+
+      - name: "Reject self-manage delete or replacement"
+        if: steps.self-manage-plan.outputs.exitcode == '2'
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+        working-directory: terraform/argocd/${{ matrix.environment }}/self-manage
+        run: |
+          terraform show -json "${RUNNER_TEMP}/tfplan.self-manage.${ENVIRONMENT}" \
+            | jq -e 'all(.resource_changes[]?; (.change.actions | index("delete") | not))' \
+              >/dev/null || {
+                echo "::error::self-manage plan contains delete or replacement"
+                exit 1
+              }
+
+      # ══════════════════════════════ ateam root ═════════════════════════════
+      - name: "Terraform Init (ateam)"
+        working-directory: terraform/argocd/${{ matrix.environment }}/ateam
+        run: terraform init -reconfigure -input=false
+
+      - name: "Terraform Validate (ateam)"
+        id: validate-ateam
+        working-directory: terraform/argocd/${{ matrix.environment }}/ateam
+        env:
+          TF_IN_AUTOMATION: "true"
+        run: terraform validate -no-color
+
+      - name: "Terraform Plan (ateam)"
+        id: ateam-plan
+        working-directory: terraform/argocd/${{ matrix.environment }}/ateam
+        env:
+          TF_IN_AUTOMATION: "true"
+          ENVIRONMENT: ${{ matrix.environment }}
+        run: |
+          set -euo pipefail
+          set +e
+          terraform plan \
+            -out="${RUNNER_TEMP}/tfplan.ateam.${ENVIRONMENT}" \
+            -no-color \
+            -detailed-exitcode \
+            -input=false \
+            2>&1 | grep -v -iE "^\s*(token|secret|password)\s*=" \
+            | tee "${RUNNER_TEMP}/plan_output.ateam.txt"
+          PLAN_EXIT="${PIPESTATUS[0]}"
+          set -e
+          echo "exitcode=${PLAN_EXIT}" >> "${GITHUB_OUTPUT}"
+
+          if [ "${PLAN_EXIT}" -eq 1 ]; then
+            echo "::error::ateam terraform plan failed with exit code 1"
+            exit 1
+          fi
+
+      - name: "Reject ateam delete or replacement"
+        if: steps.ateam-plan.outputs.exitcode == '2'
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+        working-directory: terraform/argocd/${{ matrix.environment }}/ateam
+        run: |
+          terraform show -json "${RUNNER_TEMP}/tfplan.ateam.${ENVIRONMENT}" \
+            | jq -e 'all(.resource_changes[]?; (.change.actions | index("delete") | not))' \
+              >/dev/null || {
+                echo "::error::ateam plan contains delete or replacement"
+                exit 1
+              }
+
+      # ══════════════════════════ private-network root ═══════════════════════
       - name: "Terraform Init (private network)"
         working-directory: terraform/argocd/${{ matrix.environment }}/private-network
         run: terraform init -reconfigure -input=false
@@ -254,40 +371,29 @@ jobs:
                 exit 1
               }
 
-      # ── 上傳 plan artifact（僅在有變更時上傳）─────────────────────────────
-      # artifact 供審閱與除錯保留；apply workflows 會在部署前重新產生 plan
-      - name: "Upload Plan Artifact"
-        if: steps.plan.outputs.exitcode == '2'
-        uses: actions/upload-artifact@v7
-        with:
-          name: "tfplan-${{ matrix.environment }}-${{ github.sha }}"
-          path: "${{ runner.temp }}/tfplan.${{ matrix.environment }}"
-          retention-days: 7
-          if-no-files-found: error
-
       # ── 將 plan 結果發佈至 PR comment ─────────────────────────────────────
       - name: "Post Plan Summary to PR"
         uses: actions/github-script@v7
         if: always() && github.event_name == 'pull_request'
         env:
-          PLAN_EXITCODE: ${{ steps.plan.outputs.exitcode }}
+          INSTALL_PLAN_EXITCODE: ${{ steps.install-plan.outputs.exitcode }}
+          SELF_MANAGE_PLAN_EXITCODE: ${{ steps.self-manage-plan.outputs.exitcode }}
+          ATEAM_PLAN_EXITCODE: ${{ steps.ateam-plan.outputs.exitcode }}
           PRIVATE_NETWORK_PLAN_EXITCODE: ${{ steps.private-network-plan.outputs.exitcode }}
           ENVIRONMENT: ${{ matrix.environment }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const planFile = `${process.env.RUNNER_TEMP}/plan_output.txt`;
-            const privateNetworkPlanFile = `${process.env.RUNNER_TEMP}/plan_output.private-network.txt`;
-            let planOutput = '(plan output not available)';
-            let privateNetworkPlanOutput = '(private-network plan output not available)';
-            try { planOutput = fs.readFileSync(planFile, 'utf8'); } catch (_) {}
-            try { privateNetworkPlanOutput = fs.readFileSync(privateNetworkPlanFile, 'utf8'); } catch (_) {}
+            const read = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch (_) { return '(plan output not available)'; } };
+
+            const installPlan = read(`${process.env.RUNNER_TEMP}/plan_output.install.txt`);
+            const selfManagePlan = read(`${process.env.RUNNER_TEMP}/plan_output.self-manage.txt`);
+            const ateamPlan = read(`${process.env.RUNNER_TEMP}/plan_output.ateam.txt`);
+            const privateNetworkPlan = read(`${process.env.RUNNER_TEMP}/plan_output.private-network.txt`);
 
             const icon  = (r) => r === 'success' ? '✅' : r === 'skipped' ? '⏭️' : '❌';
             const env   = process.env.ENVIRONMENT;
-            const exit  = process.env.PLAN_EXITCODE;
-            const privateNetworkExit = process.env.PRIVATE_NETWORK_PLAN_EXITCODE;
 
             const planBadge = (code) => {
               if (code === '0') return '✅ No changes — infrastructure is up-to-date';
@@ -295,40 +401,35 @@ jobs:
               return '❌ Plan failed — check the Actions log';
             };
 
-            // 截斷至 60 KB 以符合 GitHub comment 大小限制
-            const MAX = 60_000;
-            const safePlan = planOutput.length > MAX
-              ? planOutput.slice(0, MAX) + '\n\n…(truncated — see full output in Actions run)'
-              : planOutput;
-            const safePrivateNetworkPlan = privateNetworkPlanOutput.length > MAX
-              ? privateNetworkPlanOutput.slice(0, MAX) + '\n\n…(truncated — see full output in Actions run)'
-              : privateNetworkPlanOutput;
+            // 四個 section 加總後仍須低於 GitHub issue comment 的大小上限。
+            const MAX = 12_000;
+            const clip = (s) => s.length > MAX ? s.slice(0, MAX) + '\n\n…(truncated — see full output in Actions run)' : s;
+
+            const section = (title, code, output) => [
+              `<details><summary>📄 ${title} Plan Output (${planBadge(code)})</summary>`,
+              '',
+              '```hcl',
+              clip(output),
+              '```',
+              '</details>',
+              '',
+            ].join('\n');
 
             const body = [
               `## 🔍 Terraform Plan — \`${env}\` environment`,
               '',
-              `| Check | Status |`,
-              `|-------|--------|`,
+              `| Root | Status |`,
+              `|------|--------|`,
               `| 📐 Format   | ${icon('${{ steps.fmt.outcome }}')} \`${{ steps.fmt.outcome }}\` |`,
-              `| ✔️ Validate | ${icon('${{ steps.validate.outcome }}')} \`${{ steps.validate.outcome }}\` |`,
-              `| ✔️ Private-network validate | ${icon('${{ steps.validate-private-network.outcome }}')} \`${{ steps.validate-private-network.outcome }}\` |`,
-              `| 📋 ArgoCD state plan | ${planBadge(exit)} |`,
-              `| 📋 Private-network state plan | ${planBadge(privateNetworkExit)} |`,
+              `| 📋 install | ${planBadge(process.env.INSTALL_PLAN_EXITCODE)} |`,
+              `| 📋 self-manage | ${planBadge(process.env.SELF_MANAGE_PLAN_EXITCODE)} |`,
+              `| 📋 ateam | ${planBadge(process.env.ATEAM_PLAN_EXITCODE)} |`,
+              `| 📋 private-network | ${planBadge(process.env.PRIVATE_NETWORK_PLAN_EXITCODE)} |`,
               '',
-              `<details><summary>📄 ArgoCD State Plan Output</summary>`,
-              '',
-              '```hcl',
-              safePlan,
-              '```',
-              '</details>',
-              '',
-              `<details><summary>📄 Private-Network State Plan Output</summary>`,
-              '',
-              '```hcl',
-              safePrivateNetworkPlan,
-              '```',
-              '</details>',
-              '',
+              section('install', process.env.INSTALL_PLAN_EXITCODE, installPlan),
+              section('self-manage', process.env.SELF_MANAGE_PLAN_EXITCODE, selfManagePlan),
+              section('ateam', process.env.ATEAM_PLAN_EXITCODE, ateamPlan),
+              section('private-network', process.env.PRIVATE_NETWORK_PLAN_EXITCODE, privateNetworkPlan),
               '---',
               `> @${{ github.actor }} · \`${{ github.event.pull_request.head.sha }}\` · [View Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})`,
             ].join('\n');
@@ -353,7 +454,7 @@ jobs:
               });
             }
 
-      # ── 若 plan 失敗，讓整個 job 失敗 ────────────────────────────────────
-      - name: "Fail job if plan errored"
-        if: steps.plan.outputs.exitcode == '1' || steps.private-network-plan.outputs.exitcode == '1'
+      # ── 若任一 root 的 plan 失敗，讓整個 job 失敗 ─────────────────────────
+      - name: "Fail job if any plan errored"
+        if: steps.install-plan.outputs.exitcode == '1' || steps.self-manage-plan.outputs.exitcode == '1' || steps.ateam-plan.outputs.exitcode == '1' || steps.private-network-plan.outputs.exitcode == '1'
         run: exit 1

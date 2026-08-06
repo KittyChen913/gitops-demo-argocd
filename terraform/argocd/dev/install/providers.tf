@@ -1,11 +1,17 @@
 # ── AWS Provider 設定 ────────────────────────────────────────────────────────
+variable "aws_region" {
+  description = "AWS region containing the SSM parameters."
+  type        = string
+  default     = "ap-southeast-1"
+}
+
 provider "aws" {
   region = var.aws_region
 }
 
 # ── Kubernetes Provider 設定（Management Cluster）───────────────────────────
 # 連線資訊由 AWS SSM Parameter Store 取得（見 main.tf 的 data sources）。
-# 用於建立 Worker Cluster Secret。
+# 用於建立 namespace 與 Worker Cluster Secret。
 provider "kubernetes" {
   host                   = data.aws_ssm_parameter.api_endpoint.value
   cluster_ca_certificate = base64decode(data.aws_ssm_parameter.ca_cert.value)

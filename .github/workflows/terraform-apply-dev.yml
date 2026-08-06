@@ -37,7 +37,6 @@ on:
     paths:
       - "terraform/argocd/environments/dev.json"
       - "terraform/argocd/dev/**"
-      - "terraform/modules/argocd/**"
       - "argocd/**"
       - ".github/workflows/terraform-apply-dev.yml"
       - ".github/workflows/workflow-quality.yml"

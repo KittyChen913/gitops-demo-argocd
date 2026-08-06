@@ -109,7 +109,7 @@ resource "linode_networking_ip" "argocd_private" {
 }
 
 # 專用的 VPN-only 入口。既有 argocd-server ClusterIP Service 由 ArgoCD Kustomize
-# installation 管理（module.argocd，terraform/argocd/prod/main.tf 另一份 state）；
+# installation 管理（terraform/argocd/prod/install/main.tf 另一份 state）；
 # 此 companion Service 只由 Terraform 管理，避免 ArgoCD 與 Terraform 協調同一個
 # Kubernetes object。namespace 假設已由 install stage 建立；兩個 root 之間的
 # 順序由 workflow 保證，不靠 Terraform 跨 state 的 depends_on。

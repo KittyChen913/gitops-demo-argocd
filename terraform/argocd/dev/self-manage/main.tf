@@ -49,7 +49,10 @@ data "aws_ssm_parameter" "internal_domain" {
 }
 
 locals {
-  internal_domain = local.private_network.enabled ? trimspace(data.aws_ssm_parameter.internal_domain[0].value) : ""
+  # AWS provider 對 aws_ssm_parameter data source 的 value 一律標記為 sensitive，
+  # 不論 parameter type；internal_domain 只是網域名稱，非機密，故用 nonsensitive()
+  # （與 terraform/argocd/dev/private-network/main.tf 的既有作法一致）。
+  internal_domain = local.private_network.enabled ? nonsensitive(trimspace(data.aws_ssm_parameter.internal_domain[0].value)) : ""
   argocd_internal_fqdn = local.private_network.enabled ? (
     "argocd.${local.private_network.environment}.internal.${local.internal_domain}"
   ) : ""

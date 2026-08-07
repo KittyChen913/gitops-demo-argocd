@@ -70,7 +70,7 @@
 - `terraform-plan.yml` 是針對 `master` pull request 的 PR gate。
 - `terraform-apply-dev.yml` 會在 push 至 `master` 或手動觸發時部署 dev。
 - `terraform-apply-prod.yml` 會從 commit 可追溯至 `master` 的 SemVer tag 部署 prod；prod 必須依賴 GitHub Environment 核准。
-- `terraform-apply.yml` 僅供手動 override 使用。
+- 本repository不保留跨環境的緊急手動 override apply workflow。Dev 的手動補跑走 `terraform-apply-dev.yml` 的 `workflow_dispatch`；prod 只能透過 SemVer tag 觸發，不提供手動補跑入口。
 - 本repository不保留backend bootstrap workflow，也不建立、驗證或校正S3 State Bucket；bucket lifecycle與安全設定由repository外部owner負責。
 - Apply workflow 必須將部署分成依序執行的三個 Terraform job：安裝 ArgoCD、註冊 ArgoCD self-managed Application、註冊 ATeam Root Application。
 - `install`／`self-manage`／`ateam` 三個 ArgoCD Terraform job 各自使用自己獨立的 state（`terraform/argocd/<environment>/{install,self-manage,ateam}/`），透過 `_terraform-apply-stage.yml` 執行完整、不帶 `-target` 的 plan/apply；三者之間的順序由 workflow 的 `needs` 鏈保證，不使用 Terraform 跨 state 的 `depends_on`。`install` job 另對相同環境的 private-network state 執行完整、不帶 `-target` 的 plan/apply。

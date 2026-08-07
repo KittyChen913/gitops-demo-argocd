@@ -44,12 +44,8 @@ on:
       - ".github/workflows/argo-bootstrap-verify.yml"
       - ".github/actions/**"
 
+  # 手動補跑不需要額外輸入；誰在什麼時間觸發由 GitHub 的 run 記錄保存。
   workflow_dispatch:
-    inputs:
-      reason:
-        description: "觸發原因（選填，用於 audit log）"
-        required: false
-        default: "manual re-run"
 
 # 最小化 token 權限
 permissions:

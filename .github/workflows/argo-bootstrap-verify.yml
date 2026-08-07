@@ -195,11 +195,15 @@ jobs:
             sleep 2
           done
 
-          if kubectl get --request-timeout=5s --raw "${ARGOCD_PROXY}/readyz" > /dev/null 2>&1; then
-            READY="200"
-          else
-            READY="unavailable"
-          fi
+          READY="unavailable"
+          for ATTEMPT in $(seq 1 10); do
+            if kubectl get --request-timeout=5s --raw "${ARGOCD_PROXY}/readyz" > /dev/null 2>&1; then
+              READY="200"
+              echo "ArgoCD API /readyz ready on attempt ${ATTEMPT}"
+              break
+            fi
+            sleep 2
+          done
 
           echo "  /healthz → ${HEALTH}"
           echo "  /readyz  → ${READY}"

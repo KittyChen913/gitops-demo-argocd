@@ -10,9 +10,8 @@
 #   1. Kubernetes API 連通性
 #   2. ArgoCD Pod 就緒狀態（argocd namespace 至少 4 個 Running Pods）
 #   3. ArgoCD API /healthz + /readyz 端點
-#   4. ArgoCD 自我管理 Application（name: argocd）的同步與健康狀態
-#   5. Root Application 初始化（root-application-dev / root-application-prod）
-#   6. Worker Cluster 註冊驗證（argocd Cluster Secret 存在）
+#   4. Root Application 初始化（root-application-dev / root-application-prod）
+#   5. Worker Cluster 註冊驗證（argocd Cluster Secret 存在）
 #
 # 安全設計：
 #   - kubeconfig 透過 AWS SSM Parameter Store 動態取得（不儲存於 repo）
@@ -218,46 +217,8 @@ jobs:
             echo "::warning::ArgoCD /readyz is unavailable (may be warming up)"
           fi
 
-      # ── 4. ArgoCD 自我管理 Application ───────────────────────────────────
-      - name: "4 — ArgoCD self-managed application"
-        id: argocd-self-app
-        run: |
-          echo "=== ArgoCD Self-Managed Application ==="
-
-          for _ in $(seq 1 30); do
-            if kubectl get application argocd -n argocd -o name >/dev/null 2>&1; then
-              break
-            fi
-            echo "Waiting for Application/argocd..."
-            sleep 10
-          done
-
-          if ! kubectl get application argocd -n argocd -o name >/dev/null 2>&1; then
-            echo "::error::Application 'argocd' was not created"
-            exit 1
-          fi
-
-          for _ in $(seq 1 30); do
-            SYNC="$(kubectl get application argocd -n argocd \
-              -o jsonpath='{.status.sync.status}' 2>/dev/null || echo 'Unknown')"
-            HEALTH="$(kubectl get application argocd -n argocd \
-              -o jsonpath='{.status.health.status}' 2>/dev/null || echo 'Unknown')"
-
-            if [ "${SYNC}" = "Synced" ] && [ "${HEALTH}" = "Healthy" ]; then
-              echo "✅ ArgoCD self-managed application: Synced + Healthy"
-              break
-            fi
-            echo "Waiting for Application/argocd: sync=${SYNC}, health=${HEALTH}"
-            sleep 10
-          done
-
-          if [ "${SYNC}" != "Synced" ] || [ "${HEALTH}" != "Healthy" ]; then
-            echo "::error::ArgoCD self-app did not become Synced + Healthy: sync=${SYNC}, health=${HEALTH}"
-            exit 1
-          fi
-
-      # ── 5. Root Application 初始化 ───────────────────────────────────────
-      - name: "5 — Root Application bootstrap"
+      # ── 4. Root Application 初始化 ───────────────────────────────────────
+      - name: "4 — Root Application bootstrap"
         id: root-app
         env:
           ROOT_APPLICATIONS: ${{ steps.environment-config.outputs.root_applications }}
@@ -316,8 +277,8 @@ jobs:
             fi
           done
 
-      # ── 6. Worker Cluster 註冊 ────────────────────────────────────────────
-      - name: "6 — Worker Cluster registration"
+      # ── 5. Worker Cluster 註冊 ────────────────────────────────────────────
+      - name: "5 — Worker Cluster registration"
         id: cluster-reg
         env:
           WORKER_LABEL: ${{ steps.environment-config.outputs.worker_cluster_label }}
@@ -372,9 +333,8 @@ jobs:
             echo "| 1. Kubernetes API | ${{ steps.k8s-api.outcome }} |"
             echo "| 2. ArgoCD Pods Readiness | ${{ steps.argocd-pods.outcome }} |"
             echo "| 3. ArgoCD API Health | ${{ steps.argocd-api.outcome }} |"
-            echo "| 4. Self-Managed Application | ${{ steps.argocd-self-app.outcome }} |"
-            echo "| 5. Root Application Bootstrap | ${{ steps.root-app.outcome }} |"
-            echo "| 6. Cluster Registration | ${{ steps.cluster-reg.outcome }} |"
+            echo "| 4. Root Application Bootstrap | ${{ steps.root-app.outcome }} |"
+            echo "| 5. Cluster Registration | ${{ steps.cluster-reg.outcome }} |"
             echo ""
             echo "---"
             echo "Actor: @${ACTOR} · Run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"

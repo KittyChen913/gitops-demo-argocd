@@ -31,6 +31,18 @@ outputs:
   automation_vpn_expected_tunnel_ip:
     description: "Expected static IPv4 address for the ci-infra automation VPN identity"
     value: ${{ steps.load.outputs.automation_vpn_expected_tunnel_ip }}
+  private_network_enabled:
+    description: "Whether the VPN-only ArgoCD private entry is enabled"
+    value: ${{ steps.load.outputs.private_network_enabled }}
+  endpoint_ip_parameter:
+    description: "SSM parameter containing the ArgoCD private endpoint IPv4"
+    value: ${{ steps.load.outputs.endpoint_ip_parameter }}
+  endpoint_hostname_parameter:
+    description: "SSM parameter containing the ArgoCD private endpoint hostname"
+    value: ${{ steps.load.outputs.endpoint_hostname_parameter }}
+  argocd_https_port:
+    description: "TCP port exposed by the ArgoCD private endpoint"
+    value: ${{ steps.load.outputs.argocd_https_port }}
   mgmt_api_parameter:
     description: "Management Cluster API endpoint SSM parameter"
     value: ${{ steps.load.outputs.mgmt_api_parameter }}
@@ -121,6 +133,17 @@ runs:
           exit 1
         fi
 
+        # private_network 的欄位在上面已驗證過形狀，這裡只取值供 health check
+        # 把 endpoint 納入隧道內的可達性驗證。
+        PRIVATE_NETWORK_ENABLED="$(jq -er '.private_network.enabled' "${CONFIG_PATH}")"
+        ENDPOINT_IP_PARAMETER=""
+        ENDPOINT_HOSTNAME_PARAMETER=""
+        ARGOCD_HTTPS_PORT="$(jq -er '.private_network.argocd_https_port' "${CONFIG_PATH}")"
+        if [ "${PRIVATE_NETWORK_ENABLED}" = "true" ]; then
+          ENDPOINT_IP_PARAMETER="$(jq -er '.private_network.endpoint_ip_parameter_name' "${CONFIG_PATH}")"
+          ENDPOINT_HOSTNAME_PARAMETER="$(jq -er '.private_network.endpoint_hostname_parameter_name' "${CONFIG_PATH}")"
+        fi
+
         ROOT_APPLICATIONS="$(jq -cer '.root_applications' "${CONFIG_PATH}")"
         AUTOMATION_VPN_IDENTITY="$(jq -er '.automation_vpn.identity' "${CONFIG_PATH}")"
         AUTOMATION_VPN_PROFILE_PARAMETER="$(jq -er '.automation_vpn.profile_ssm_path' "${CONFIG_PATH}")"
@@ -136,6 +159,10 @@ runs:
           echo "automation_vpn_profile_parameter=${AUTOMATION_VPN_PROFILE_PARAMETER}"
           echo "automation_vpn_password_parameter=${AUTOMATION_VPN_PASSWORD_PARAMETER}"
           echo "automation_vpn_expected_tunnel_ip=${AUTOMATION_VPN_EXPECTED_TUNNEL_IP}"
+          echo "private_network_enabled=${PRIVATE_NETWORK_ENABLED}"
+          echo "endpoint_ip_parameter=${ENDPOINT_IP_PARAMETER}"
+          echo "endpoint_hostname_parameter=${ENDPOINT_HOSTNAME_PARAMETER}"
+          echo "argocd_https_port=${ARGOCD_HTTPS_PORT}"
           echo "mgmt_api_parameter=${SSM_PATH_PREFIX}/${MGMT_CLUSTER_LABEL}/api-endpoint"
           echo "worker_api_parameter=${SSM_PATH_PREFIX}/${WORKER_CLUSTER_LABEL}/api-endpoint"
         } >> "${GITHUB_OUTPUT}"

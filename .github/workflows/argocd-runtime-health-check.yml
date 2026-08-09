@@ -79,16 +79,96 @@ jobs:
             ${{ steps.environment-config.outputs.ssm_path_prefix }}/${{
             steps.environment-config.outputs.mgmt_cluster_label }}
 
+      # 除了 Kubernetes API，這裡把 ArgoCD private endpoint 一併納入隧道內的
+      # 可達性驗證。Cloud Firewall 的 allowList 只含 VPN 固定 egress /32，
+      # 因此從 runner 自身出口直連必定 timeout；唯一能驗證這條路徑的位置，
+      # 就是已經建立 automation tunnel 的 CI。缺少這一項時，endpoint 從
+      # 建立到不可用都不會有任何自動化檢查發現。
       - name: Resolve automation VPN target
         id: automation-vpn-target
+        env:
+          PRIVATE_NETWORK_ENABLED: ${{ steps.environment-config.outputs.private_network_enabled }}
+          ENDPOINT_IP_PARAMETER: ${{ steps.environment-config.outputs.endpoint_ip_parameter }}
+          ENDPOINT_HOSTNAME_PARAMETER: ${{ steps.environment-config.outputs.endpoint_hostname_parameter }}
+          ARGOCD_HTTPS_PORT: ${{ steps.environment-config.outputs.argocd_https_port }}
+          TARGET_ENVIRONMENT: ${{ matrix.environment }}
         run: |
           set -euo pipefail
           : "${API_ENDPOINT:?SSM parameter api-endpoint is required}"
           endpoint_host="${API_ENDPOINT#*://}"
           endpoint_host="${endpoint_host%%/*}"
           endpoint_host="${endpoint_host%%:*}"
-          printf 'route_target=%s\n' "${API_ENDPOINT}" >> "${GITHUB_OUTPUT}"
-          printf 'health_target=%s:443\n' "${endpoint_host}" >> "${GITHUB_OUTPUT}"
+
+          route_targets="${API_ENDPOINT}"
+          health_targets="${endpoint_host}:443"
+          argocd_endpoint_ip=""
+          argocd_endpoint_hostname=""
+
+          if [ "${PRIVATE_NETWORK_ENABLED}" = "true" ]; then
+            if ! argocd_endpoint_ip="$(aws ssm get-parameter \
+              --name "${ENDPOINT_IP_PARAMETER}" \
+              --query Parameter.Value --output text 2>/dev/null)"; then
+              echo "::error::The ArgoCD private endpoint parameter is unavailable: ${ENDPOINT_IP_PARAMETER}"
+              echo "::error::Apply the private-network root before running the runtime health check."
+              exit 1
+            fi
+            if ! argocd_endpoint_hostname="$(aws ssm get-parameter \
+              --name "${ENDPOINT_HOSTNAME_PARAMETER}" \
+              --query Parameter.Value --output text 2>/dev/null)"; then
+              echo "::error::The ArgoCD private endpoint hostname parameter is unavailable: ${ENDPOINT_HOSTNAME_PARAMETER}"
+              echo "::error::Apply the private-network root before running the runtime health check."
+              exit 1
+            fi
+
+            if [[ "${argocd_endpoint_ip}" =~ [[:space:]] ]] ||
+              [[ ! "${argocd_endpoint_ip}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+              echo "::error::The ArgoCD private endpoint IPv4 is invalid."
+              exit 1
+            fi
+            IFS=. read -r ip_a ip_b ip_c ip_d <<< "${argocd_endpoint_ip}"
+            for octet in "${ip_a}" "${ip_b}" "${ip_c}" "${ip_d}"; do
+              if [[ "${#octet}" -gt 1 && "${octet:0:1}" = "0" ]]; then
+                echo "::error::The ArgoCD private endpoint IPv4 is invalid."
+                exit 1
+              fi
+              if ((10#${octet} > 255)); then
+                echo "::error::The ArgoCD private endpoint IPv4 is invalid."
+                exit 1
+              fi
+            done
+            if ((ip_a == 0 || ip_a == 10 || ip_a == 127 || ip_a >= 224)) ||
+              ((ip_a == 100 && ip_b >= 64 && ip_b <= 127)) ||
+              ((ip_a == 169 && ip_b == 254)) ||
+              ((ip_a == 172 && ip_b >= 16 && ip_b <= 31)) ||
+              ((ip_a == 192 && ip_b == 168)) ||
+              ((ip_a == 192 && ip_b == 0 && (ip_c == 0 || ip_c == 2))) ||
+              ((ip_a == 192 && ip_b == 88 && ip_c == 99)) ||
+              ((ip_a == 198 && (ip_b == 18 || ip_b == 19))) ||
+              ((ip_a == 198 && ip_b == 51 && ip_c == 100)) ||
+              ((ip_a == 203 && ip_b == 0 && ip_c == 113)); then
+              echo "::error::The ArgoCD private endpoint IPv4 must be public."
+              exit 1
+            fi
+            if [[ "${argocd_endpoint_hostname}" =~ [[:space:]] ]] ||
+              [[ ! "${argocd_endpoint_hostname}" =~ ^argocd\.${TARGET_ENVIRONMENT}\.internal\.[a-z0-9.-]+$ ]]; then
+              echo "::error::The ArgoCD private endpoint hostname is invalid."
+              exit 1
+            fi
+
+            route_targets="${route_targets}"$'\n'"${argocd_endpoint_ip}"
+            health_targets="${health_targets}"$'\n'"${argocd_endpoint_ip}:${ARGOCD_HTTPS_PORT}"
+          fi
+
+          {
+            echo 'route_target<<TARGETS_EOF'
+            printf '%s\n' "${route_targets}"
+            echo 'TARGETS_EOF'
+            echo 'health_target<<TARGETS_EOF'
+            printf '%s\n' "${health_targets}"
+            echo 'TARGETS_EOF'
+            printf 'argocd_endpoint_ip=%s\n' "${argocd_endpoint_ip}"
+            printf 'argocd_endpoint_hostname=%s\n' "${argocd_endpoint_hostname}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Open automation VPN tunnel
         id: automation-vpn
@@ -100,6 +180,27 @@ jobs:
           expected-tunnel-ip: ${{ steps.environment-config.outputs.automation_vpn_expected_tunnel_ip }}
           route-targets: ${{ steps.automation-vpn-target.outputs.route_target }}
           health-targets: ${{ steps.automation-vpn-target.outputs.health_target }}
+
+      # Tunnel action 已確認 TCP path；本步使用 endpoint hostname 作為 SNI／Host，
+      # 驗證 TCP passthrough 後方實際回應的是可用的 ArgoCD HTTP endpoint。
+      - name: Verify ArgoCD private endpoint health through the tunnel
+        if: ${{ steps.automation-vpn-target.outputs.argocd_endpoint_ip != '' }}
+        env:
+          ENDPOINT_IP: ${{ steps.automation-vpn-target.outputs.argocd_endpoint_ip }}
+          ENDPOINT_HOSTNAME: ${{ steps.automation-vpn-target.outputs.argocd_endpoint_hostname }}
+          ARGOCD_HTTPS_PORT: ${{ steps.environment-config.outputs.argocd_https_port }}
+        run: |
+          set -euo pipefail
+          if ! curl --fail --silent --show-error --insecure \
+            --connect-timeout 10 --max-time 20 \
+            --resolve "${ENDPOINT_HOSTNAME}:${ARGOCD_HTTPS_PORT}:${ENDPOINT_IP}" \
+            "https://${ENDPOINT_HOSTNAME}:${ARGOCD_HTTPS_PORT}/healthz" \
+            > /dev/null; then
+            echo "::error::The ArgoCD private endpoint did not return a healthy HTTP response through the automation VPN tunnel."
+            echo "::error::Check endpoint DNS contract, TLS passthrough, Cloud Firewall allowList, Reserved IPv4 attachment, and NodeBalancer backend health."
+            exit 1
+          fi
+          echo "The ArgoCD private endpoint returned a healthy HTTP response through the tunnel."
 
       - name: Build Temporary Kubeconfig
         env:

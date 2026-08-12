@@ -20,8 +20,8 @@ spec:
     targetRevision: master
     path: argocd/install
     kustomize:
-      # ArgoCD 是 argocd-cm 與 argocd-rbac-cm 的唯一 controller。Terraform 只 render
-      # 此 Application spec，不以 kubernetes_config_map_v1_data 爭用 field ownership。
+      # ArgoCD 是 argocd-cm 的唯一 controller。Terraform 只 render 此 Application
+      # spec，不以 kubernetes_config_map_v1_data 爭用 field ownership。
       patches:
         - target:
             kind: ConfigMap
@@ -30,24 +30,6 @@ spec:
             - op: add
               path: /data/url
               value: https://${argocd_internal_fqdn}
-            - op: add
-              path: /data/accounts.dev-readonly
-              value: login
-            - op: add
-              path: /data/accounts.dev-operator
-              value: login
-        - target:
-            kind: ConfigMap
-            name: argocd-rbac-cm
-          patch: |-
-            - op: add
-              path: /data/policy.csv
-              value: |-
-                p, role:dev-readonly, applications, get, */*, allow
-                p, role:dev-operator, applications, get, */*, allow
-                p, role:dev-operator, applications, sync, */*, allow
-                g, dev-readonly, role:dev-readonly
-                g, dev-operator, role:dev-operator
 
   ignoreDifferences:
     - group: "*"

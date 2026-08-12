@@ -5,6 +5,10 @@ inputs:
   aws-account-id:
     description: 'AWS Account ID (stored as Repository Secret)'
     required: true
+  role-name:
+    description: 'Approved OIDC IAM role name'
+    required: false
+    default: 'github-oidc-gitops-demo-argocd-role'
   aws-region:
     description: 'AWS Region'
     required: false
@@ -13,10 +17,23 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Validate OIDC role name
+      shell: bash
+      env:
+        ROLE_NAME: ${{ inputs.role-name }}
+      run: |
+        case "${ROLE_NAME}" in
+          github-oidc-gitops-demo-argocd-role|github-oidc-gitops-demo-argocd-dev-admin-escrow-role) ;;
+          *)
+            echo "::error::Unsupported OIDC role name"
+            exit 1
+            ;;
+        esac
+
     - name: Configure AWS credentials via OIDC
       uses: aws-actions/configure-aws-credentials@v6
       with:
-        role-to-assume: arn:aws:iam::${{ inputs.aws-account-id }}:role/github-oidc-gitops-demo-argocd-role
+        role-to-assume: arn:aws:iam::${{ inputs.aws-account-id }}:role/${{ inputs.role-name }}
         aws-region: ${{ inputs.aws-region }}
         role-session-name: "GitHubActions-${{ github.run_id }}"
         mask-aws-account-id: true

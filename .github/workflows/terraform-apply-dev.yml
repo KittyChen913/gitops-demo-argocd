@@ -43,6 +43,9 @@ on:
       - ".github/workflows/_terraform-apply-stage.yml"
       - ".github/workflows/argo-bootstrap-verify.yml"
       - ".github/actions/**"
+      # apply path 會執行 automation VPN tunnel 與 Dev admin password escrow
+      # 兩支腳本，因此整個 scripts/ 都算此 pipeline 的直接依賴。
+      - "scripts/**"
 
   # 手動補跑不需要額外輸入；誰在什麼時間觸發由 GitHub 的 run 記錄保存。
   workflow_dispatch:
@@ -66,7 +69,8 @@ jobs:
     uses: ./.github/workflows/workflow-quality.yml
 
   # ────────────────────────────────────────────────────────────────────────────
-  # Jobs 2-4：分階段執行 dev Terraform Apply
+  # Jobs 2-4：分階段執行 dev Terraform Apply；install job 會在結束前完成
+  # initial admin password escrow，成功後 self-manage 才能開始。
   # ────────────────────────────────────────────────────────────────────────────
   install-argocd:
     name: "1. Install ArgoCD [dev]"

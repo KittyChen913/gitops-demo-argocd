@@ -254,26 +254,115 @@ jobs:
               ;;
           esac
 
+      # Dev initial admin password escrow 與 install 共用已開啟的 Management
+      # Cluster tunnel。Cluster credential 先由既有 action 取得，再切換到只信任
+      # environment:dev 的專用 OIDC role；Prod 不執行這些 steps。
+      - name: "Install kubectl for Dev admin password escrow"
+        if: inputs.environment == 'dev' && inputs.stage == 'install'
+        uses: azure/setup-kubectl@v5
+        with:
+          version: "v1.30.0"
+
+      - name: "Fetch Dev Management Cluster credentials from SSM"
+        if: inputs.environment == 'dev' && inputs.stage == 'install'
+        uses: ./.github/actions/get-ssm-parameters
+        with:
+          ssm_param_path: >-
+            ${{ steps.environment-config.outputs.ssm_path_prefix }}/${{
+            steps.environment-config.outputs.mgmt_cluster_label }}
+
+      - name: "Configure Dev admin escrow AWS credentials"
+        if: inputs.environment == 'dev' && inputs.stage == 'install'
+        uses: ./.github/actions/configure-aws-credentials
+        with:
+          aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
+          role-name: github-oidc-gitops-demo-argocd-dev-admin-escrow-role
+
+      - name: "Escrow Dev ArgoCD initial admin password"
+        if: inputs.environment == 'dev' && inputs.stage == 'install'
+        working-directory: ${{ github.workspace }}
+        env:
+          ADMIN_PASSWORD_PARAMETER: ${{ steps.environment-config.outputs.admin_password_parameter }}
+        run: |
+          set -euo pipefail
+          : "${API_ENDPOINT:?Management Cluster API endpoint is required}"
+          : "${CA_CERT:?Management Cluster CA certificate is required}"
+          : "${TOKEN:?Management Cluster token is required}"
+          : "${ADMIN_PASSWORD_PARAMETER:?Dev admin password parameter path is required}"
+
+          umask 077
+          kubeconfig_file="$(mktemp "${RUNNER_TEMP}/argocd-admin-kubeconfig.XXXXXX")"
+          cleanup_kubeconfig() {
+            rm -f -- "${kubeconfig_file}"
+          }
+          # 正常結束由 EXIT trap 清理；收到終止 signal 時，清理後必須停止執行。
+          trap cleanup_kubeconfig EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          trap 'exit 129' HUP
+          chmod 600 "${kubeconfig_file}"
+
+          cat >"${kubeconfig_file}" <<KUBECONFIG_EOF
+          apiVersion: v1
+          kind: Config
+          clusters:
+          - name: mgmt
+            cluster:
+              server: ${API_ENDPOINT}
+              certificate-authority-data: ${CA_CERT}
+          users:
+          - name: mgmt
+            user:
+              token: ${TOKEN}
+          contexts:
+          - name: mgmt
+            context:
+              cluster: mgmt
+              user: mgmt
+          current-context: mgmt
+          KUBECONFIG_EOF
+
+          KUBECONFIG="${kubeconfig_file}" \
+            ARGOCD_ADMIN_PASSWORD_PARAMETER_NAME="${ADMIN_PASSWORD_PARAMETER}" \
+            bash scripts/escrow-argocd-initial-admin-password.sh
+
+      # 同時清掉 escrow OIDC role 的暫時憑證，避免它延續到 tunnel 關閉與 summary
+      # 等後續 steps；這幾個 steps 都不需要 AWS。
+      - name: "Clear Dev admin escrow credential environment"
+        if: always() && inputs.environment == 'dev' && inputs.stage == 'install'
+        working-directory: ${{ github.workspace }}
+        run: |
+          {
+            echo "API_ENDPOINT="
+            echo "CA_CERT="
+            echo "TOKEN="
+            echo "AWS_ACCESS_KEY_ID="
+            echo "AWS_SECRET_ACCESS_KEY="
+            echo "AWS_SESSION_TOKEN="
+          } >> "${GITHUB_ENV}"
+
       - name: "Close automation VPN tunnel"
         if: ${{ always() && steps.automation-vpn.outputs['state-directory'] != '' }}
         uses: ./.github/actions/close-automation-vpn-tunnel
         with:
           state-directory: ${{ steps.automation-vpn.outputs['state-directory'] }}
 
+      # STATUS 以 job.status 為準，而不是只看 apply step 的結果；apply 之後還有
+      # private endpoint reconcile 與 Dev admin password escrow 等會失敗的 steps。
       - name: "Write stage summary"
         if: always()
         env:
-          APPLY_OUTCOME: ${{ steps.apply.outcome }}
           DEPLOY_STAGE: ${{ inputs.stage }}
           ENVIRONMENT: ${{ inputs.environment }}
+          JOB_STATUS: ${{ job.status }}
           PLAN_EXIT: ${{ steps.plan.outputs.exitcode }}
         run: |
-          if [ "${PLAN_EXIT}" = "0" ]; then
-            STATUS="No changes"
-          elif [ "${APPLY_OUTCOME}" = "success" ]; then
-            STATUS="Success"
-          else
+          if [ "${JOB_STATUS}" != "success" ]; then
             STATUS="Failed"
+          elif [ "${PLAN_EXIT}" = "0" ]; then
+            STATUS="No changes"
+          else
+            STATUS="Success"
           fi
 
           {

@@ -2,6 +2,7 @@
   "ssm_path_prefix": "/gitops/dev/clusters",
   "mgmt_cluster_label": "lke-dev-mgmt",
   "worker_cluster_label": "lke-dev-ateam",
+  "admin_password_parameter_name": "/gitops/dev/platform/argocd/ADMIN_PASSWORD",
   "automation_vpn": {
     "identity": "ci-argocd",
     "profile_ssm_path": "/gitops/openvpn-dns/automation/ci-argocd/PROFILE",

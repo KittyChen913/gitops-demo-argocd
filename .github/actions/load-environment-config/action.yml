@@ -49,6 +49,9 @@ outputs:
   worker_api_parameter:
     description: "Worker Cluster API endpoint SSM parameter"
     value: ${{ steps.load.outputs.worker_api_parameter }}
+  admin_password_parameter:
+    description: "Dev-only SSM parameter for the ArgoCD initial admin password escrow"
+    value: ${{ steps.load.outputs.admin_password_parameter }}
 
 runs:
   using: "composite"
@@ -83,6 +86,23 @@ runs:
         SSM_PATH_PREFIX="$(jq -er '.ssm_path_prefix' "${CONFIG_PATH}")"
         MGMT_CLUSTER_LABEL="$(jq -er '.mgmt_cluster_label' "${CONFIG_PATH}")"
         WORKER_CLUSTER_LABEL="$(jq -er '.worker_cluster_label' "${CONFIG_PATH}")"
+
+        if [ "${TARGET_ENVIRONMENT}" = "dev" ]; then
+          if ! jq -e '
+            .admin_password_parameter_name ==
+              "/gitops/dev/platform/argocd/ADMIN_PASSWORD"
+          ' "${CONFIG_PATH}" >/dev/null; then
+            echo "::error::Invalid Dev admin password escrow configuration: ${CONFIG_FILE}"
+            exit 1
+          fi
+          ADMIN_PASSWORD_PARAMETER="$(jq -er '.admin_password_parameter_name' "${CONFIG_PATH}")"
+        else
+          if ! jq -e 'has("admin_password_parameter_name") | not' "${CONFIG_PATH}" >/dev/null; then
+            echo "::error::Prod must not define an admin password escrow parameter: ${CONFIG_FILE}"
+            exit 1
+          fi
+          ADMIN_PASSWORD_PARAMETER=""
+        fi
 
         if ! jq -e --arg environment "${TARGET_ENVIRONMENT}" '
           .private_network
@@ -165,4 +185,5 @@ runs:
           echo "argocd_https_port=${ARGOCD_HTTPS_PORT}"
           echo "mgmt_api_parameter=${SSM_PATH_PREFIX}/${MGMT_CLUSTER_LABEL}/api-endpoint"
           echo "worker_api_parameter=${SSM_PATH_PREFIX}/${WORKER_CLUSTER_LABEL}/api-endpoint"
+          echo "admin_password_parameter=${ADMIN_PASSWORD_PARAMETER}"
         } >> "${GITHUB_OUTPUT}"

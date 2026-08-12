@@ -1,12 +1,12 @@
 # Agent 指引
 
-這些指引適用於整個 `gitops-demo-infra` repository。編輯程式碼、Terraform、GitHub Actions、腳本或文件時都必須遵循。
+這些指引適用於整個 `gitops-demo-argocd` repository。編輯程式碼、Terraform、GitHub Actions、腳本或文件時都必須遵循。
 
 ## Repository 範圍
 
 - 本 repository 管理平台與 GitOps 層：安裝 ArgoCD、ArgoCD 自我管理、註冊 Worker Cluster，以及初始化根 Application。
 - Kubernetes 叢集佈建由 `gitops-demo-cluster` 負責，不屬於本 repository。
-- Shared OpenVPN建立於獨立Linode VM，由`gitops-demo-platform-access`負責；不在Kubernetes Cluster內建立，本repository也不取得其producer或BASE configuration ownership。
+- Shared OpenVPN建立於獨立Linode VM，由`gitops-demo-openvpn-dns`負責；不在Kubernetes Cluster內建立，本repository也不取得其producer或BASE configuration ownership。
 - Application manifest 與 ApplicationSet 由 `gitops-demo-apps` 負責，不屬於本 repository。
 - frontend / backend 原始碼、Dockerfile 與映像建置 workflow 分別由 `gitops-demo-frontend`、`gitops-demo-backend` 負責，不屬於本 repository。
 - apps repository 名稱為 `gitops-demo-apps`；根 Application 與 apps repo ApplicationSet 的 `repoURL` 必須使用 `https://github.com/KittyChen913/gitops-demo-apps.git`。
@@ -47,7 +47,7 @@
 - dev 與 prod 必須使用獨立的 environment config；修改 prod 設定不得觸發 dev apply。
 - Root Application 設定的 `name` 必須與對應 manifest 的 `metadata.name` 一致。
 - `terraform/argocd/<environment>/{install,self-manage,ateam,private-network}/backend.tf` 必須包含完整靜態 S3 backend 設定：`bucket`、`region`、`key`、`encrypt` 與 `use_lockfile`。
-- dev 與 prod 的 state key 必須分別為 `gitops-demo-infra/<environment>/argocd-install/terraform.tfstate`、`gitops-demo-infra/<environment>/argocd-self-manage/terraform.tfstate`、`gitops-demo-infra/<environment>/argocd-ateam/terraform.tfstate`、`gitops-demo-infra/<environment>/argocd-private-network/terraform.tfstate`。
+- dev 與 prod 的 state key 必須分別為 `gitops-demo-argocd/<environment>/argocd-install/terraform.tfstate`、`gitops-demo-argocd/<environment>/argocd-self-manage/terraform.tfstate`、`gitops-demo-argocd/<environment>/argocd-ateam/terraform.tfstate`、`gitops-demo-argocd/<environment>/argocd-private-network/terraform.tfstate`。
 - Terraform init 必須直接在 `terraform/argocd/<environment>/{install,self-manage,ateam,private-network}` 其中一個 root 執行，不得使用 `-backend-config` 動態注入 backend 值。
 - S3 State Bucket 必須由 repository 外部流程預先建立；本 repository 的 workflow 與 OIDC role 不得要求或使用 `s3:CreateBucket`。
 - Terraform state、plan、kubeconfig 與 `terraform.tfvars` 都不得提交。
@@ -77,7 +77,7 @@
 - `terraform-destroy.yml` 僅 `workflow_dispatch` 觸發，透過 `_terraform-destroy-stage.yml` 對 `terraform/argocd/<environment>/{install,self-manage,ateam,private-network}/` 四個獨立 state 執行完整、不帶 `-target` 的 `terraform destroy`；stage 順序與 apply 完全相反（`ateam` → `self-manage` → `private-network` → `install`），由 workflow 的 `needs` 鏈保證。`install` 必須排在最後，因為 `argocd` namespace 由該 root 擁有。
 - 僅修改文件時，不應觸發部署 workflow。
 
-跨Repository從零部署順序固定為：Cluster foundation → Platform Access → Cluster worker firewall convergence → Infra / ArgoCD → User Provisioning。
+跨Repository從零部署順序固定為：Cluster foundation → OpenVPN／DNS → Cluster worker firewall convergence → ArgoCD → User Provisioning。
 
 ## Workflow 安全規則
 
@@ -100,7 +100,7 @@
 - 不要主動執行 `terraform apply`／`terraform destroy`，或手動觸發 `terraform-apply-dev.yml`、`terraform-apply-prod.yml`、`terraform-apply.yml`、`terraform-destroy.yml` 等會改變雲端／ArgoCD 狀態的命令，除非使用者明確要求。
 - `terraform-destroy.yml` 僅 `workflow_dispatch` 觸發，destroy 選定環境 apply 建立的四個 root（`ateam`／`self-manage`／`private-network`／`install`，與 apply 完全相反的順序），依使用者要求不含任何額外確認步驟；如需移除已建立的 ArgoCD 或 private network 資源，仍須先與使用者確認範圍與方式，不得自行觸發此 workflow 或以其他等效手段執行 `terraform destroy`。
 - `private-network` root 不得再加回 `lifecycle.prevent_destroy`：該設定只接受 literal 值，無法以 variable 開關，加回會讓 `terraform-destroy.yml` 無法執行。Apply path 的刪除保護由 `terraform-plan.yml` 與 `_terraform-apply-stage.yml` 的「Reject … delete or replacement」plan guard 負責，修改這些 root 時不得移除該 guard。
-- Destroy `private-network` 會移除 `/gitops/<environment>/platform/argocd/ENDPOINT_IP` 與 `ENDPOINT_HOSTNAME` 這兩個供 `gitops-demo-platform-access` 讀取的 contract parameters；該 root 同時讀取 Platform Access 發布的 `INTERNAL_DOMAIN` 與 `VPN_PUBLIC_EGRESS_IP`。因此 teardown 順序必須與部署順序相反，Infra／ArgoCD 必須在 Platform Access 之前 destroy。
+- Destroy `private-network` 會移除 `/gitops/<environment>/platform/argocd/ENDPOINT_IP` 與 `ENDPOINT_HOSTNAME` 這兩個供 `gitops-demo-openvpn-dns` 讀取的 contract parameters；該 root 同時讀取 OpenVPN／DNS 發布的 `INTERNAL_DOMAIN` 與 `VPN_PUBLIC_EGRESS_IP`。因此 teardown 順序必須與部署順序相反，ArgoCD 必須在 OpenVPN／DNS 之前 destroy。
 - 不要讀取、印出或提交 secret；若需確認 secret 是否存在，只回報存在與否。
 - 不要修改 Terraform state、遠端 S3 state 或 GitHub Environment protection 設定，除非使用者明確要求。
 - 不要回復使用者既有未提交變更；工作區已有變更時，先理解並在其上工作。

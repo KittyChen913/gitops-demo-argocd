@@ -2,7 +2,7 @@
 # Terraform Plan - PR 驗證 Pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 #
-# 觸發時機：Pull Request 對 master 且命中 infra paths，或手動選擇環境
+# 觸發時機：Pull Request 對 master 且命中 ArgoCD paths，或手動選擇環境
 #
 # 行為：
 #   1. 偵測目標 environment（依 PR label: env:dev / env:prod，預設 dev）

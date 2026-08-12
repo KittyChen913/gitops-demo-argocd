@@ -2,7 +2,7 @@
 
 # 本 repo 自有的 automation VPN tunnel adapter；只處理 runner-local OpenVPN
 # process 與精確的 split-tunnel host routes，Cloud、Firewall 與 Access Server
-# desired state 由 gitops-demo-platform-access 管理，本檔案不得反向依賴該
+# desired state 由 gitops-demo-openvpn-dns 管理，本檔案不得反向依賴該
 # repo 的 Git layout、branch、tag 或 commit SHA。
 set -euo pipefail
 
@@ -79,10 +79,10 @@ expected_tunnel_ip="${VPN_EXPECTED_TUNNEL_IP:-}"
 route_targets="${VPN_ROUTE_TARGETS:-}"
 health_targets="${VPN_HEALTH_TARGETS:-}"
 
-# 本 repo 只擁有並使用 ci-infra 這一個 automation 身份；不接受其他 repo
+# 本 repo 只擁有並使用 ci-argocd 這一個 automation 身份；不接受其他 repo
 # 的身份名稱，避免這份 local script 被誤用成跨 repo 共用元件。
-[[ "${identity}" == "ci-infra" ]] || {
-  echo "invalid automation VPN identity for gitops-demo-infra" >&2
+[[ "${identity}" == "ci-argocd" ]] || {
+  echo "invalid automation VPN identity for gitops-demo-argocd" >&2
   exit 2
 }
 if [[ -n "${expected_tunnel_ip}" ]] &&

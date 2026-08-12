@@ -49,7 +49,7 @@ runs:
 
     # ── 2. AWS OIDC 驗證 ──────────────────────────────────────────────────────
     # 透過 configure-aws-credentials composite action 取得暫時 AWS credentials。
-    # IAM Role 名稱格式：github-oidc-gitops-demo-infra-role
+    # IAM Role 名稱格式：github-oidc-gitops-demo-argocd-role
     # Account ID 儲存為 Repository Secret。
     - name: Configure AWS Credentials (OIDC)
       uses: ./.github/actions/configure-aws-credentials

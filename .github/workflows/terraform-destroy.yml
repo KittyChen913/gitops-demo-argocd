@@ -32,10 +32,10 @@
 # ⚠️  跨 Repository 影響：
 #   private-network stage 會移除
 #   /gitops/<environment>/platform/argocd/ENDPOINT_IP 與 ENDPOINT_HOSTNAME
-#   這兩個供 gitops-demo-platform-access 讀取的 contract parameters。
-#   另一方向的依賴同樣存在：這個 root 會讀取 Platform Access 發布的
+#   這兩個供 gitops-demo-openvpn-dns 讀取的 contract parameters。
+#   另一方向的依賴同樣存在：這個 root 會讀取 OpenVPN／DNS 發布的
 #   INTERNAL_DOMAIN 與 VPN_PUBLIC_EGRESS_IP，兩者若已先行移除，destroy 會
-#   在 data source 讀取階段就失敗。teardown 必須在 Platform Access 之前執行。
+#   在 data source 讀取階段就失敗。teardown 必須在 OpenVPN／DNS 之前執行。
 # ──────────────────────────────────────────────────────────────────────────────
 
 name: "🗑️ Terraform Destroy [Manual]"

@@ -1,9 +1,9 @@
 name: "Open Automation VPN Tunnel"
-description: "Open the gitops-demo-infra automation VPN tunnel with isolated host routes."
+description: "Open the gitops-demo-argocd automation VPN tunnel with isolated host routes."
 
 inputs:
   identity:
-    description: "Approved automation identity (ci-infra only)."
+    description: "Approved automation identity (ci-argocd only)."
     required: true
   profile-ssm-parameter:
     description: "SSM String parameter containing the user-locked VPN profile."
@@ -42,9 +42,9 @@ runs:
         EXPECTED_TUNNEL_IP: ${{ inputs.expected-tunnel-ip }}
       run: |
         set -euo pipefail
-        [[ "${IDENTITY}" == "ci-infra" ]]
-        test "${PROFILE_PARAMETER}" = "/gitops/platform-access/automation/${IDENTITY}/PROFILE"
-        test "${PASSWORD_PARAMETER}" = "/gitops/platform-access/automation/${IDENTITY}/PASSWORD"
+        [[ "${IDENTITY}" == "ci-argocd" ]]
+        test "${PROFILE_PARAMETER}" = "/gitops/openvpn-dns/automation/${IDENTITY}/PROFILE"
+        test "${PASSWORD_PARAMETER}" = "/gitops/openvpn-dns/automation/${IDENTITY}/PASSWORD"
         if [[ -n "${EXPECTED_TUNNEL_IP}" ]]; then
           [[ "${EXPECTED_TUNNEL_IP}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
         fi

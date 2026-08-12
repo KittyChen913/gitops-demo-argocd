@@ -4,7 +4,7 @@ output "argocd_private_service_name" {
 }
 
 output "argocd_network_config" {
-  description = "Non-sensitive endpoint hand-off contract consumed by Platform Access."
+  description = "Non-sensitive endpoint hand-off contract consumed by OpenVPN/DNS."
   value = {
     enabled                          = local.private_network.enabled
     environment                      = local.private_network.environment

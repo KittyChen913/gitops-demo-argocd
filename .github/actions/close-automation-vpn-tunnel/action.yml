@@ -1,5 +1,5 @@
 name: "Close Automation VPN Tunnel"
-description: "Close the gitops-demo-infra automation VPN tunnel and remove runner-local material."
+description: "Close the gitops-demo-argocd automation VPN tunnel and remove runner-local material."
 
 inputs:
   state-directory:

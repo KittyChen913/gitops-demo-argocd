@@ -25,13 +25,13 @@ resource "terraform_data" "private_network_contract" {
     }
 
     precondition {
-      condition     = can(regex("^/gitops/platform-access/network/INTERNAL_DOMAIN$", local.private_network.internal_domain_parameter_name))
-      error_message = "INTERNAL_DOMAIN must be read from the approved Platform Access SSM path."
+      condition     = can(regex("^/gitops/openvpn-dns/network/INTERNAL_DOMAIN$", local.private_network.internal_domain_parameter_name))
+      error_message = "INTERNAL_DOMAIN must be read from the approved OpenVPN/DNS SSM path."
     }
 
     precondition {
-      condition     = can(regex("^/gitops/platform-access/network/VPN_PUBLIC_EGRESS_IP$", local.private_network.vpn_public_egress_ip_parameter_name))
-      error_message = "VPN egress must be read from the approved Platform Access SSM path."
+      condition     = can(regex("^/gitops/openvpn-dns/network/VPN_PUBLIC_EGRESS_IP$", local.private_network.vpn_public_egress_ip_parameter_name))
+      error_message = "VPN egress must be read from the approved OpenVPN/DNS SSM path."
     }
 
     precondition {
@@ -76,7 +76,7 @@ data "aws_ssm_parameter" "token" {
   with_decryption = true
 }
 
-# ── Platform Access 跨 Repository hand-off ─────────────────────────────────
+# ── OpenVPN／DNS 跨 Repository hand-off ─────────────────────────────────────
 # 只讀取精確 parameter 名稱；不讀取另一個 Repository 的 Terraform state。
 data "aws_ssm_parameter" "internal_domain" {
   name = local.private_network.internal_domain_parameter_name
@@ -173,10 +173,10 @@ resource "kubernetes_service_v1" "argocd_server_private" {
   }
 }
 
-# Endpoint publication 是非敏感的跨 Repository 介面。Platform Access 只讀取這兩個
-# parameter，不讀取 infra state。這兩個 parameter 同樣移除了 prevent_destroy；
+# Endpoint publication 是非敏感的跨 Repository 介面。OpenVPN／DNS 只讀取這兩個
+# parameter，不讀取 ArgoCD state。這兩個 parameter 同樣移除了 prevent_destroy；
 # 意外刪除由 CI plan guard 擋下，刻意刪除走 terraform-destroy.yml。
-# 注意：destroy 這個 root 會一併移除下列 contract parameters，Platform Access
+# 注意：destroy 這個 root 會一併移除下列 contract parameters，OpenVPN／DNS
 # 端的 internal DNS 發布會失去來源，teardown 順序請見 docs/ci-cd.md。
 resource "aws_ssm_parameter" "argocd_endpoint_ip" {
   name  = local.private_network.endpoint_ip_parameter_name

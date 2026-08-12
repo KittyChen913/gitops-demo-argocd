@@ -29,7 +29,7 @@ outputs:
     description: "SSM parameter containing the automation VPN password"
     value: ${{ steps.load.outputs.automation_vpn_password_parameter }}
   automation_vpn_expected_tunnel_ip:
-    description: "Expected static IPv4 address for the ci-infra automation VPN identity"
+    description: "Expected static IPv4 address for the ci-argocd automation VPN identity"
     value: ${{ steps.load.outputs.automation_vpn_expected_tunnel_ip }}
   private_network_enabled:
     description: "Whether the VPN-only ArgoCD private entry is enabled"
@@ -94,8 +94,8 @@ runs:
               or (
                 (.environment == $environment)
                 and (.linode_region | type == "string" and test("^[a-z]{2}-[a-z]+$"))
-                and (.internal_domain_parameter_name == "/gitops/platform-access/network/INTERNAL_DOMAIN")
-                and (.vpn_public_egress_ip_parameter_name == "/gitops/platform-access/network/VPN_PUBLIC_EGRESS_IP")
+                and (.internal_domain_parameter_name == "/gitops/openvpn-dns/network/INTERNAL_DOMAIN")
+                and (.vpn_public_egress_ip_parameter_name == "/gitops/openvpn-dns/network/VPN_PUBLIC_EGRESS_IP")
                 and (.endpoint_ip_parameter_name == ("/gitops/" + $environment + "/platform/argocd/ENDPOINT_IP"))
                 and (.endpoint_hostname_parameter_name == ("/gitops/" + $environment + "/platform/argocd/ENDPOINT_HOSTNAME"))
                 and (.openvpn_server_public_ipv6 == null)
@@ -122,11 +122,11 @@ runs:
         fi
 
         if ! jq -e '
-          .automation_vpn.identity == "ci-infra"
+          .automation_vpn.identity == "ci-argocd"
           and .automation_vpn.profile_ssm_path ==
-            "/gitops/platform-access/automation/ci-infra/PROFILE"
+            "/gitops/openvpn-dns/automation/ci-argocd/PROFILE"
           and .automation_vpn.password_ssm_path ==
-            "/gitops/platform-access/automation/ci-infra/PASSWORD"
+            "/gitops/openvpn-dns/automation/ci-argocd/PASSWORD"
           and (.automation_vpn.expected_tunnel_ip | test("^([0-9]{1,3}\\.){3}[0-9]{1,3}$"))
         ' "${CONFIG_PATH}" >/dev/null; then
           echo "::error::Invalid automation_vpn configuration: ${CONFIG_FILE}"

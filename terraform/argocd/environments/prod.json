@@ -3,17 +3,17 @@
   "mgmt_cluster_label": "lke-prod-mgmt",
   "worker_cluster_label": "lke-prod-ateam",
   "automation_vpn": {
-    "identity": "ci-infra",
-    "profile_ssm_path": "/gitops/platform-access/automation/ci-infra/PROFILE",
-    "password_ssm_path": "/gitops/platform-access/automation/ci-infra/PASSWORD",
+    "identity": "ci-argocd",
+    "profile_ssm_path": "/gitops/openvpn-dns/automation/ci-argocd/PROFILE",
+    "password_ssm_path": "/gitops/openvpn-dns/automation/ci-argocd/PASSWORD",
     "expected_tunnel_ip": "172.28.0.3"
   },
   "private_network": {
     "enabled": true,
     "environment": "prod",
     "linode_region": "ap-south",
-    "internal_domain_parameter_name": "/gitops/platform-access/network/INTERNAL_DOMAIN",
-    "vpn_public_egress_ip_parameter_name": "/gitops/platform-access/network/VPN_PUBLIC_EGRESS_IP",
+    "internal_domain_parameter_name": "/gitops/openvpn-dns/network/INTERNAL_DOMAIN",
+    "vpn_public_egress_ip_parameter_name": "/gitops/openvpn-dns/network/VPN_PUBLIC_EGRESS_IP",
     "endpoint_ip_parameter_name": "/gitops/prod/platform/argocd/ENDPOINT_IP",
     "endpoint_hostname_parameter_name": "/gitops/prod/platform/argocd/ENDPOINT_HOSTNAME",
     "openvpn_server_public_ipv6": null,

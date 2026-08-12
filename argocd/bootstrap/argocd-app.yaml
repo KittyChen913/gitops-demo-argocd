@@ -27,7 +27,7 @@ spec:
     namespace: argocd
 
   source:
-    repoURL: https://github.com/KittyChen913/gitops-demo-infra.git
+    repoURL: https://github.com/KittyChen913/gitops-demo-argocd.git
     targetRevision: master
     path: argocd/install    # 指向含有 kustomization.yaml 的目錄
 

@@ -5,7 +5,7 @@ locals {
 }
 
 # 這個 root 只管理 self-managed Application；desired state 裡固定假設
-# environment_config 的 schema 已由 gitops-demo-infra 的 CI（load-environment-config
+# environment_config 的 schema 已由 gitops-demo-argocd 的 CI（load-environment-config
 # action 的 jq 檢查）與 install root 共用同一份 environments/<env>.json 驗證過。
 # 這裡再加一層 fail-closed 的 lifecycle precondition，避免這個獨立 state 在
 # schema 被改壞時仍以 exit 0 通過 plan gate（同 private-network root 的做法，
@@ -18,8 +18,8 @@ resource "terraform_data" "self_manage_contract" {
     }
 
     precondition {
-      condition     = !local.private_network.enabled || can(regex("^/gitops/platform-access/network/INTERNAL_DOMAIN$", local.private_network.internal_domain_parameter_name))
-      error_message = "INTERNAL_DOMAIN must be read from the approved Platform Access SSM path."
+      condition     = !local.private_network.enabled || can(regex("^/gitops/openvpn-dns/network/INTERNAL_DOMAIN$", local.private_network.internal_domain_parameter_name))
+      error_message = "INTERNAL_DOMAIN must be read from the approved OpenVPN/DNS SSM path."
     }
   }
 }
@@ -38,7 +38,7 @@ data "aws_ssm_parameter" "token" {
   with_decryption = true
 }
 
-# ── Platform Access 跨 Repository hand-off ─────────────────────────────────
+# ── OpenVPN／DNS 跨 Repository hand-off ─────────────────────────────────
 # 只讀取精確 parameter 名稱；不讀取另一個 Repository 的 Terraform state。
 # 這裡只讀 INTERNAL_DOMAIN 是為了組出 self-managed Application 的 canonical URL
 # patch；private-network 專用資源已在 terraform/argocd/prod/private-network/

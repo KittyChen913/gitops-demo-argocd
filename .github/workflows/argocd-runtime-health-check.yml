@@ -16,41 +16,17 @@ on:
         description: "Target environment"
         required: true
         type: choice
-        options: [dev, prod, all]
-        default: all
+        options: [dev, prod]
+        default: dev
 
 permissions:
   contents: read
   id-token: write
 
 jobs:
-  determine-environments:
-    name: "Determine Target Environments"
-    runs-on: ubuntu-latest
-
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-
-    steps:
-      - name: Set Environment Matrix
-        id: set-matrix
-        env:
-          INPUT_ENV: ${{ inputs.environment }}
-        run: |
-          if [ "${INPUT_ENV}" = "all" ]; then
-            echo 'matrix={"environment":["dev","prod"]}' >> "${GITHUB_OUTPUT}"
-          else
-            echo "matrix={\"environment\":[\"${INPUT_ENV}\"]}" >> "${GITHUB_OUTPUT}"
-          fi
-
   runtime-health:
-    name: "ArgoCD Runtime [${{ matrix.environment }}]"
-    needs: determine-environments
+    name: "ArgoCD Runtime [${{ inputs.environment }}]"
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.determine-environments.outputs.matrix) }}
 
     steps:
       - name: Checkout
@@ -60,7 +36,7 @@ jobs:
         id: environment-config
         uses: ./.github/actions/load-environment-config
         with:
-          environment: ${{ matrix.environment }}
+          environment: ${{ inputs.environment }}
 
       - name: Configure AWS Credentials
         uses: ./.github/actions/configure-aws-credentials
@@ -91,7 +67,7 @@ jobs:
           ENDPOINT_IP_PARAMETER: ${{ steps.environment-config.outputs.endpoint_ip_parameter }}
           ENDPOINT_HOSTNAME_PARAMETER: ${{ steps.environment-config.outputs.endpoint_hostname_parameter }}
           ARGOCD_HTTPS_PORT: ${{ steps.environment-config.outputs.argocd_https_port }}
-          TARGET_ENVIRONMENT: ${{ matrix.environment }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -euo pipefail
           : "${API_ENDPOINT:?SSM parameter api-endpoint is required}"
@@ -243,7 +219,7 @@ jobs:
       - name: Run ArgoCD Runtime Health Check
         id: health-check
         env:
-          ENVIRONMENT: ${{ matrix.environment }}
+          ENVIRONMENT: ${{ inputs.environment }}
         run: |
           bash scripts/argocd-runtime-health.sh \
             "${ENVIRONMENT}" \
@@ -255,8 +231,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: "argocd-health-${{ matrix.environment }}-${{ github.run_id }}"
-          path: "${{ runner.temp }}/argocd-health-${{ matrix.environment }}.txt"
+          name: "argocd-health-${{ inputs.environment }}-${{ github.run_id }}"
+          path: "${{ runner.temp }}/argocd-health-${{ inputs.environment }}.txt"
           retention-days: 30
           if-no-files-found: ignore
 
@@ -276,7 +252,7 @@ jobs:
       - name: Write Runtime Health Summary
         if: always()
         env:
-          ENVIRONMENT: ${{ matrix.environment }}
+          ENVIRONMENT: ${{ inputs.environment }}
           CHECK_OUTCOME: ${{ steps.health-check.outcome }}
         run: |
           REPORT="${{ runner.temp }}/argocd-health-${ENVIRONMENT}.txt"

@@ -38,7 +38,7 @@
 #   在 data source 讀取階段就失敗。teardown 必須在 OpenVPN／DNS 之前執行。
 # ──────────────────────────────────────────────────────────────────────────────
 
-name: "🗑️ Terraform Destroy [Manual]"
+name: "Terraform Destroy"
 
 on:
   workflow_dispatch:
@@ -69,7 +69,7 @@ jobs:
   # Job 1：前置檢查與觸發紀錄（audit trail，不阻擋執行）
   # ────────────────────────────────────────────────────────────────────────────
   trigger-info:
-    name: "Validate Prerequisites"
+    name: "Validate"
     runs-on: ubuntu-latest
     steps:
       - name: "Validate OIDC prerequisites"
@@ -107,7 +107,7 @@ jobs:
   destroy-ateam:
     name: "1. Destroy ATeam Root Application [${{ inputs.environment }}]"
     needs: trigger-info
-    uses: ./.github/workflows/_terraform-destroy-stage.yml
+    uses: ./.github/workflows/terraform-destroy-stage.yml
     with:
       environment: ${{ inputs.environment }}
       stage: ateam
@@ -116,7 +116,7 @@ jobs:
   destroy-self-manage:
     name: "2. Destroy Self-Managed ArgoCD Application [${{ inputs.environment }}]"
     needs: destroy-ateam
-    uses: ./.github/workflows/_terraform-destroy-stage.yml
+    uses: ./.github/workflows/terraform-destroy-stage.yml
     with:
       environment: ${{ inputs.environment }}
       stage: self-manage
@@ -125,7 +125,7 @@ jobs:
   destroy-private-network:
     name: "3. Destroy Private ArgoCD Endpoint [${{ inputs.environment }}]"
     needs: destroy-self-manage
-    uses: ./.github/workflows/_terraform-destroy-stage.yml
+    uses: ./.github/workflows/terraform-destroy-stage.yml
     with:
       environment: ${{ inputs.environment }}
       stage: private-network
@@ -136,7 +136,7 @@ jobs:
   destroy-install:
     name: "4. Destroy ArgoCD Install [${{ inputs.environment }}]"
     needs: destroy-private-network
-    uses: ./.github/workflows/_terraform-destroy-stage.yml
+    uses: ./.github/workflows/terraform-destroy-stage.yml
     with:
       environment: ${{ inputs.environment }}
       stage: install

@@ -31,7 +31,7 @@
 #     擋下 PR（見各自的 "Reject ... delete or replacement" step）。
 # ──────────────────────────────────────────────────────────────────────────────
 
-name: "🔍 Terraform Plan"
+name: "Terraform Plan"
 
 on:
   pull_request:
@@ -47,8 +47,8 @@ on:
       - "terraform/**"
       - "argocd/**"
       - ".github/workflows/terraform-*.yml"
-      - ".github/workflows/_terraform-apply-stage.yml"
-      - ".github/workflows/_terraform-destroy-stage.yml"
+      - ".github/workflows/terraform-apply-stage.yml"
+      - ".github/workflows/terraform-destroy-stage.yml"
       - ".github/actions/**"
 
   workflow_dispatch:

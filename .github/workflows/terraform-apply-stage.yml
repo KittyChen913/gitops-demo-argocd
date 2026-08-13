@@ -1,4 +1,4 @@
-name: "_Terraform Apply Stage"
+name: Terraform Apply Stage
 
 on:
   workflow_call:

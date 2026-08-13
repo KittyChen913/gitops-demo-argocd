@@ -20,7 +20,7 @@
 #   - 不使用 $GITHUB_WORKSPACE 存放任何 credentials
 # ──────────────────────────────────────────────────────────────────────────────
 
-name: "🔎 ArgoCD Bootstrap Verification"
+name: "ArgoCD Bootstrap Verification"
 
 on:
   workflow_call:

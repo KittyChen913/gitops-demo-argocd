@@ -7,7 +7,7 @@ set -euo pipefail
 repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dev_template="${repository_root}/argocd/bootstrap/argocd-app-dev.yaml.tftpl"
 prod_template="${repository_root}/argocd/bootstrap/argocd-app-prod.yaml.tftpl"
-apply_stage="${repository_root}/.github/workflows/_terraform-apply-stage.yml"
+apply_stage="${repository_root}/.github/workflows/terraform-apply-stage.yml"
 dev_workflow="${repository_root}/.github/workflows/terraform-apply-dev.yml"
 prod_workflow="${repository_root}/.github/workflows/terraform-apply-prod.yml"
 escrow_script="${repository_root}/scripts/escrow-argocd-initial-admin-password.sh"
@@ -64,7 +64,7 @@ grep -A 4 '^  register-argocd-application:' "${dev_workflow}" | \
   grep -Fq 'needs: install-argocd' || fail "Dev self-manage does not wait for install and escrow"
 
 # Prod 走的是同一支 reusable workflow，所以只 grep prod workflow 沒有意義：escrow
-# 全部邏輯都在 _terraform-apply-stage.yml。真正要驗的是每個 escrow step 都帶著
+# 全部邏輯都在 terraform-apply-stage.yml。真正要驗的是每個 escrow step 都帶著
 # dev-only guard，以及 prod workflow 只以 environment: prod 呼叫該 workflow。
 step_guards() {
   awk '

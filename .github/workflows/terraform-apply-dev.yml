@@ -25,7 +25,7 @@
 # └─────────────────────────────────────────────────────────────────────────┘
 # ──────────────────────────────────────────────────────────────────────────────
 
-name: "🟢 Terraform Apply [dev]"
+name: "Terraform Apply - Dev"
 
 on:
   push:
@@ -39,9 +39,9 @@ on:
       - "terraform/argocd/dev/**"
       - "argocd/**"
       - ".github/workflows/terraform-apply-dev.yml"
-      - ".github/workflows/workflow-quality.yml"
-      - ".github/workflows/_terraform-apply-stage.yml"
-      - ".github/workflows/argo-bootstrap-verify.yml"
+      - ".github/workflows/validation.yml"
+      - ".github/workflows/terraform-apply-stage.yml"
+      - ".github/workflows/argocd-bootstrap-verification.yml"
       - ".github/actions/**"
       # apply path 會執行 automation VPN tunnel 與 Dev admin password escrow
       # 兩支腳本，因此整個 scripts/ 都算此 pipeline 的直接依賴。
@@ -65,8 +65,8 @@ jobs:
   # Job 1：Workflow 與 Script 品質檢查
   # ────────────────────────────────────────────────────────────────────────────
   quality:
-    name: "Workflow Quality"
-    uses: ./.github/workflows/workflow-quality.yml
+    name: "Validation"
+    uses: ./.github/workflows/validation.yml
 
   # ────────────────────────────────────────────────────────────────────────────
   # Jobs 2-4：分階段執行 dev Terraform Apply；install job 會在結束前完成
@@ -75,7 +75,7 @@ jobs:
   install-argocd:
     name: "1. Install ArgoCD [dev]"
     needs: quality
-    uses: ./.github/workflows/_terraform-apply-stage.yml
+    uses: ./.github/workflows/terraform-apply-stage.yml
     with:
       environment: dev
       stage: install
@@ -84,7 +84,7 @@ jobs:
   register-argocd-application:
     name: "2. Register ArgoCD Application [dev]"
     needs: install-argocd
-    uses: ./.github/workflows/_terraform-apply-stage.yml
+    uses: ./.github/workflows/terraform-apply-stage.yml
     with:
       environment: dev
       stage: self-manage
@@ -93,7 +93,7 @@ jobs:
   register-ateam-application:
     name: "3. Register ATeam Application [dev]"
     needs: register-argocd-application
-    uses: ./.github/workflows/_terraform-apply-stage.yml
+    uses: ./.github/workflows/terraform-apply-stage.yml
     with:
       environment: dev
       stage: ateam
@@ -102,7 +102,7 @@ jobs:
   verify:
     name: "Verify ArgoCD [dev]"
     needs: register-ateam-application
-    uses: ./.github/workflows/argo-bootstrap-verify.yml
+    uses: ./.github/workflows/argocd-bootstrap-verification.yml
     with:
       environment: dev
     secrets: inherit

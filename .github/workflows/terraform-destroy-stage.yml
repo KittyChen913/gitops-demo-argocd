@@ -1,4 +1,4 @@
-name: "_Terraform Destroy Stage"
+name: Terraform Destroy Stage
 
 on:
   workflow_call:
@@ -118,7 +118,7 @@ jobs:
       # private-network root 原本的 lifecycle.prevent_destroy 已移除（該設定只
       # 接受 literal 值，無法以 variable 開關），因此四個 stage 都能正常完成；
       # apply path 的刪除保護改由 plan guard 負責，見 terraform-plan.yml 與
-      # _terraform-apply-stage.yml 的「Reject ... delete or replacement」step。
+      # terraform-apply-stage.yml 的「Reject ... delete or replacement」step。
       #
       # private-network 另外需要 LINODE_TOKEN。前一個 conditional step 透過
       # get-ssm-parameters 精確讀取並 mask；此 step 是唯一 consumer，執行後

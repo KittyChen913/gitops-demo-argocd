@@ -1,4 +1,4 @@
-name: "Workflow Quality"
+name: "Validation"
 
 on:
   pull_request:

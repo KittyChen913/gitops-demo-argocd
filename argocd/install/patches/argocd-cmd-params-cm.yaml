@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+data:
+  # ApplicationSet Progressive Syncs（ArgoCD v3.3 Beta）。
+  # 這是本 repository 唯一的 Progressive Syncs 設定來源；
+  # 上游 argocd-applicationset-controller Deployment 已將
+  # ARGOCD_APPLICATIONSET_CONTROLLER_ENABLE_PROGRESSIVE_SYNCS
+  # 以 configMapKeyRef 接到本 key，因此不得在 Deployment 另外設定同名環境變數。
+  #
+  # controller 只在啟動時讀取此值，變更後必須讓 Pod 重新建立；
+  # 對應的 rollout 由 patches/argocd-applicationset-controller.yaml 的
+  # pod template annotation 觸發，修改本值時必須一併更新該 annotation。
+  applicationsetcontroller.enable.progressive.syncs: "true"

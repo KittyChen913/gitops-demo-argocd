@@ -18,3 +18,13 @@ patches:
     target:
       kind: Deployment
       name: argocd-server
+  # ApplicationSet Progressive Syncs 開關的唯一設定來源
+  - path: patches/argocd-cmd-params-cm.yaml
+    target:
+      kind: ConfigMap
+      name: argocd-cmd-params-cm
+  # 只帶 rollout 觸發用的 pod template annotation，不重複定義開關值
+  - path: patches/argocd-applicationset-controller.yaml
+    target:
+      kind: Deployment
+      name: argocd-applicationset-controller

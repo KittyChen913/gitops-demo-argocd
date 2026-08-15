@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-applicationset-controller
+spec:
+  template:
+    metadata:
+      annotations:
+        # 本 annotation 不保存任何設定值，只是 argocd-cmd-params-cm 變更時的 rollout 觸發點。
+        # ApplicationSet controller 在啟動時才讀取 cmd-params，ConfigMap 更新不會自動重建 Pod；
+        # 變更 patches/argocd-cmd-params-cm.yaml 內的 controller 參數時必須同時更新此值，
+        # 讓 Pod template 產生差異並由 ArgoCD 自動 rollout，不需人工 kubectl rollout restart。
+        gitops-demo.io/cmd-params-revision: progressive-syncs-enabled

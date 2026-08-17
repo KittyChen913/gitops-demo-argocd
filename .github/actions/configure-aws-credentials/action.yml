@@ -1,39 +1,65 @@
-name: 'Configure AWS Credentials'
-description: 'Configure AWS credentials via OIDC (no stored access key)'
+name: "Configure AWS Credentials"
+description: "Configure short-lived AWS credentials through GitHub OIDC using selectors from config/shared.json."
 
 inputs:
   aws-account-id:
-    description: 'AWS Account ID (stored as Repository Secret)'
+    description: "AWS Account ID used to compose the runtime OIDC role ARN."
     required: true
-  role-name:
-    description: 'Approved OIDC IAM role name'
+  role:
+    description: "Semantic OIDC role selector resolved from config/shared.json (.aws.oidc_roles)."
     required: false
-    default: 'github-oidc-gitops-demo-argocd-role'
-  aws-region:
-    description: 'AWS Region'
-    required: false
-    default: 'ap-southeast-1'
+    default: "deployment"
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
-    - name: Validate OIDC role name
+    - name: "Resolve AWS OIDC role from repository contract"
+      id: resolve
       shell: bash
       env:
-        ROLE_NAME: ${{ inputs.role-name }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+        ROLE: ${{ inputs.role }}
       run: |
-        case "${ROLE_NAME}" in
-          github-oidc-gitops-demo-argocd-role|github-oidc-gitops-demo-argocd-dev-admin-escrow-role) ;;
-          *)
-            echo "::error::Unsupported OIDC role name"
-            exit 1
-            ;;
-        esac
+        set -euo pipefail
+        readonly EXPECTED_SCHEMA_VERSION=1
+        config="${GITHUB_WORKSPACE}/config/shared.json"
 
-    - name: Configure AWS credentials via OIDC
+        if [[ ! -f "${config}" ]]; then
+          echo "::error::Repository contract file not found: config/shared.json"
+          exit 1
+        fi
+
+        if ! jq -e --argjson v "${EXPECTED_SCHEMA_VERSION}" '.schema_version == $v' "${config}" >/dev/null; then
+          echo "::error::config/shared.json schema_version mismatch (expected ${EXPECTED_SCHEMA_VERSION})."
+          exit 1
+        fi
+
+        if ! aws_region="$(jq -re '.aws.region | select(type == "string" and length > 0)' "${config}")"; then
+          echo "::error::config/shared.json .aws.region must be a non-empty string"
+          exit 1
+        fi
+
+        if ! role_name="$(jq -re --arg k "${ROLE}" '.aws.oidc_roles[$k] | select(type == "string" and length > 0)' "${config}")"; then
+          echo "::error::OIDC role selector '${ROLE}' must resolve to a non-empty string in config/shared.json (.aws.oidc_roles)."
+          exit 1
+        fi
+
+        role_arn="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${role_name}"
+        if [[ ! "${role_arn}" =~ ^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then
+          echo "::error::Runtime AWS role ARN is missing or invalid."
+          exit 1
+        fi
+
+        # 只遮蔽帳號 ID，保留 Role 名稱以便診斷 AssumeRoleWithWebIdentity 失敗。
+        echo "::add-mask::${AWS_ACCOUNT_ID}"
+        printf 'aws_region=%s\n' "${aws_region}" >> "${GITHUB_OUTPUT}"
+        printf 'role_arn=%s\n' "${role_arn}" >> "${GITHUB_OUTPUT}"
+
+    - name: "Configure AWS credentials via OIDC"
       uses: aws-actions/configure-aws-credentials@v6
       with:
-        role-to-assume: arn:aws:iam::${{ inputs.aws-account-id }}:role/${{ inputs.role-name }}
-        aws-region: ${{ inputs.aws-region }}
-        role-session-name: "GitHubActions-${{ github.run_id }}"
+        role-to-assume: ${{ steps.resolve.outputs.role_arn }}
+        role-session-name: gitops-argocd-${{ github.run_id }}
+        aws-region: ${{ steps.resolve.outputs.aws_region }}
         mask-aws-account-id: true
+        unset-current-credentials: true

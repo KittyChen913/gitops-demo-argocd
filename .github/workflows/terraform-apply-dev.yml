@@ -43,6 +43,9 @@ on:
       - ".github/workflows/terraform-apply-stage.yml"
       - ".github/workflows/argocd-bootstrap-verification.yml"
       - ".github/actions/**"
+      # repo 契約檔：OIDC Role 名稱、AWS region 與共用 SSM 路徑的唯一來源，
+      # 由 configure-aws-credentials／get-ssm-parameters 於執行期讀取。
+      - "config/shared.json"
       # apply path 會執行 automation VPN tunnel 與 Dev admin password escrow
       # 兩支腳本，因此整個 scripts/ 都算此 pipeline 的直接依賴。
       - "scripts/**"

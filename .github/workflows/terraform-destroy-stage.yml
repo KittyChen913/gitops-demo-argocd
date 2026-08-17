@@ -109,7 +109,7 @@ jobs:
         if: inputs.stage == 'private-network'
         uses: ./.github/actions/get-ssm-parameters
         with:
-          ssm_param_name: /gitops/shared/LINODE_TOKEN
+          name-selector: linode_token
 
       # install root 沿用 apply 既有的 -refresh=false 例外（ArgoCD 自我管理後，
       # refresh 會讀到 kbst provider 缺失的 last-applied annotation；destroy 若

@@ -200,8 +200,13 @@ jobs:
           set -euo pipefail
           terraform init -input=false
 
+          shared_config="${GITHUB_WORKSPACE}/config/shared.json"
+          # 與 configure-aws-credentials／get-ssm-parameters 採同一組驗證：
+          # 先確認契約檔版號，再取絕對路徑字串。任何一項不符即 fail closed。
+          jq -e '.schema_version == 1' "${shared_config}" >/dev/null
+          linode_token_path="$(jq -re '.aws.ssm_parameter_paths.linode_token | select(type == "string") | select(length > 1 and startswith("/"))' "${shared_config}")"
           linode_token="$(aws ssm get-parameter \
-            --name /gitops/shared/LINODE_TOKEN \
+            --name "${linode_token_path}" \
             --with-decryption \
             --query Parameter.Value \
             --output text)"
@@ -276,7 +281,7 @@ jobs:
         uses: ./.github/actions/configure-aws-credentials
         with:
           aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
-          role-name: github-oidc-gitops-demo-argocd-dev-admin-escrow-role
+          role: dev-admin-escrow
 
       - name: "Escrow Dev ArgoCD initial admin password"
         if: inputs.environment == 'dev' && inputs.stage == 'install'

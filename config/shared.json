@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "aws": {
+    "region": "ap-southeast-1",
+    "oidc_roles": {
+      "deployment": "github-oidc-gitops-demo-argocd-role",
+      "dev-admin-escrow": "github-oidc-gitops-demo-argocd-dev-admin-escrow-role"
+    },
+    "ssm_parameter_paths": {
+      "linode_token": "/gitops/shared/LINODE_TOKEN"
+    }
+  }
+}

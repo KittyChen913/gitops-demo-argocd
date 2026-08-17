@@ -26,6 +26,20 @@ jobs:
       - name: "Checkout"
         uses: actions/checkout@v6
 
+      - name: "Validate repository contract"
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '
+            def nonempty_string: type == "string" and length > 0;
+            def absolute_name: nonempty_string and startswith("/");
+            .schema_version == 1
+            and (.aws.region | nonempty_string)
+            and (.aws.oidc_roles.deployment | nonempty_string)
+            and (.aws.oidc_roles["dev-admin-escrow"] | nonempty_string)
+            and (.aws.ssm_parameter_paths.linode_token | absolute_name)
+          ' config/shared.json >/dev/null
+
       - name: "Run actionlint"
         uses: docker://rhysd/actionlint:1.7.12
         with:

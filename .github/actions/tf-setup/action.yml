@@ -5,12 +5,12 @@
 #   2. AWS OIDC 認證（無需 stored access key）
 #   3. 在指定 component root 執行 terraform init（S3 遠端 backend）
 #
-# 被 terraform-plan.yml、_terraform-apply-stage.yml 與
-# _terraform-destroy-stage.yml 呼叫。
+# 被 terraform-plan.yml、terraform-apply-stage.yml 與
+# terraform-destroy-stage.yml 呼叫。
 # kubectl 安裝由各 caller 自行負責（apply 需要，plan／destroy 不需要）。
 
 name: "Terraform Setup"
-description: "Setup Terraform, authenticate with AWS OIDC, and initialise S3 remote backend"
+description: "Set up Terraform, configure AWS credentials through OIDC, and initialize the selected backend."
 
 inputs:
   environment:
@@ -22,10 +22,6 @@ inputs:
   aws-account-id:
     description: "AWS Account ID (stored as Repository Secret secrets.AWS_ACCOUNT_ID)"
     required: true
-  aws-region:
-    description: "AWS region for authentication"
-    required: false
-    default: "ap-southeast-1"
   terraform-version:
     description: "Terraform version constraint"
     required: false
@@ -49,13 +45,14 @@ runs:
 
     # ── 2. AWS OIDC 驗證 ──────────────────────────────────────────────────────
     # 透過 configure-aws-credentials composite action 取得暫時 AWS credentials。
-    # IAM Role 名稱格式：github-oidc-gitops-demo-argocd-role
+    # 這裡只傳語意 selector；實際 Role 名稱與 region 由該 action 從
+    # config/shared.json 的 .aws.oidc_roles / .aws.region 解析。
     # Account ID 儲存為 Repository Secret。
     - name: Configure AWS Credentials (OIDC)
       uses: ./.github/actions/configure-aws-credentials
       with:
         aws-account-id: ${{ inputs.aws-account-id }}
-        aws-region: ${{ inputs.aws-region }}
+        role: deployment
 
     # ── 3. Terraform 初始化（S3 backend）──────────────────────────────────────
     # bucket / region / key / encrypt / use_lockfile 均定義於環境 root 的 backend.tf。

@@ -56,7 +56,8 @@
 - GitHub Actions 的 AWS 驗證只能使用 OIDC。
 - 不得使用、宣告或傳遞 `secrets.AWS_ACCESS_KEY_ID` 或 `secrets.AWS_SECRET_ACCESS_KEY`。
 - 必須透過 `.github/actions/configure-aws-credentials` 設定 AWS credentials；workflow 與其他 composite action 都不得直接呼叫 `aws-actions/configure-aws-credentials`。
-- 呼叫該 action 時**只傳語意 selector**：一般 job 用 `role: deployment`，Dev install 的 escrow step 用 `role: dev-admin-escrow`。不得傳 IAM Role 名稱或 ARN。`role-name` 與 `aws-region` 兩個舊 input 已移除。
+- 呼叫該 action 時**只傳語意 selector**：目前所有 job 一律 `role: deployment`；Dev install 的 escrow step 沿用 job 開頭 `tf-setup` 取得的同一組憑證，不另外切換 OIDC role。不得傳 IAM Role 名稱或 ARN。`role-name` 與 `aws-region` 兩個舊 input 已移除。
+- 本 repository 的 PR plan 與 apply 目前都透過 `deployment` selector 解析到同一個 IAM Role，並共用同一份 role policy；這是明確接受的 trust model 與 blast radius。完成 Scope A IAM rollout 後，任何成功 assume 該 Role 的 PR plan session 也會持有 `/gitops/dev/platform/argocd/ADMIN_PASSWORD` 的 `ssm:PutParameter` 權限。PR plan 的 assume eligibility 受 GitHub event、fork workflow approval、Repository Secret 可用性與外部 IAM trust policy 控制；apply 另受 dev／prod Environment protection。IAM trust policy 可依 OIDC claims 區分 PR 與 environment／ref，但現階段不新增 `plan` role，也不新增 `deployment-dev`／`deployment-prod` 這類 environment-specific selector。
 - IAM Role 名稱、GitHub Actions OIDC／AWS CLI 使用的 AWS region，以及 repo 層級的固定 SSM parameter name，字面值**只存在於 `config/shared.json`**；`.github/` 底下不得再出現 `github-oidc-` 開頭的字串或寫死的 region。Terraform provider 與 backend region 仍由既有 variables／`backend.tf` 管理。
 - 新增 Role 的正確做法是「在 `config/shared.json` 的 `.aws.oidc_roles` 加一個 key ＋ 呼叫端改傳新 selector」，action 邏輯不動。原本 action 內的 Bash 白名單已移除；讀取端必須驗證 selector 對應值是非空字串。
 - `config/shared.json` 的 `schema_version` 由讀取端以 `jq -e` 驗證，不符即 `exit 1`；改動契約檔結構時必須同步升版號與所有讀取端的期望值。

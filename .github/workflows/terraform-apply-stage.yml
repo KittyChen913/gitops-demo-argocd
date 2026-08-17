@@ -260,8 +260,8 @@ jobs:
           esac
 
       # Dev initial admin password escrow 與 install 共用已開啟的 Management
-      # Cluster tunnel。Cluster credential 先由既有 action 取得，再切換到只信任
-      # environment:dev 的專用 OIDC role；Prod 不執行這些 steps。
+      # Cluster tunnel，以及 job 開頭 tf-setup 取得的 deployment 憑證；escrow 不再
+      # 另外切換 OIDC role。Prod 不執行這些 steps。
       - name: "Install kubectl for Dev admin password escrow"
         if: inputs.environment == 'dev' && inputs.stage == 'install'
         uses: azure/setup-kubectl@v5
@@ -275,13 +275,6 @@ jobs:
           ssm_param_path: >-
             ${{ steps.environment-config.outputs.ssm_path_prefix }}/${{
             steps.environment-config.outputs.mgmt_cluster_label }}
-
-      - name: "Configure Dev admin escrow AWS credentials"
-        if: inputs.environment == 'dev' && inputs.stage == 'install'
-        uses: ./.github/actions/configure-aws-credentials
-        with:
-          aws-account-id: ${{ secrets.AWS_ACCOUNT_ID }}
-          role: dev-admin-escrow
 
       - name: "Escrow Dev ArgoCD initial admin password"
         if: inputs.environment == 'dev' && inputs.stage == 'install'
@@ -331,9 +324,11 @@ jobs:
             ARGOCD_ADMIN_PASSWORD_PARAMETER_NAME="${ADMIN_PASSWORD_PARAMETER}" \
             bash scripts/escrow-argocd-initial-admin-password.sh
 
-      # 同時清掉 escrow OIDC role 的暫時憑證，避免它延續到 tunnel 關閉與 summary
-      # 等後續 steps；這幾個 steps 都不需要 AWS。
-      - name: "Clear Dev admin escrow credential environment"
+      # API_ENDPOINT／CA_CERT／TOKEN 是 get-ssm-parameters 寫入 GITHUB_ENV 的
+      # Management Cluster 憑證，escrow 完成後不再需要，清掉避免延續到 tunnel
+      # 關閉與 summary。deployment 憑證不在此清除：它是整個 job 共用的，清成空
+      # 字串會讓日後在此之後新增的 AWS step 以難以追溯的方式失敗。
+      - name: "Clear Management Cluster credential environment"
         if: always() && inputs.environment == 'dev' && inputs.stage == 'install'
         working-directory: ${{ github.workspace }}
         run: |
@@ -341,9 +336,6 @@ jobs:
             echo "API_ENDPOINT="
             echo "CA_CERT="
             echo "TOKEN="
-            echo "AWS_ACCESS_KEY_ID="
-            echo "AWS_SECRET_ACCESS_KEY="
-            echo "AWS_SESSION_TOKEN="
           } >> "${GITHUB_ENV}"
 
       - name: "Close automation VPN tunnel"

@@ -103,9 +103,45 @@ assert_step_guard() {
 
 assert_step_guard "Install kubectl for Dev admin password escrow" "${dev_guard}"
 assert_step_guard "Fetch Dev Management Cluster credentials from SSM" "${dev_guard}"
-assert_step_guard "Configure Dev admin escrow AWS credentials" "${dev_guard}"
 assert_step_guard "Escrow Dev ArgoCD initial admin password" "${dev_guard}"
-assert_step_guard "Clear Dev admin escrow credential environment" "always() && ${dev_guard}"
+assert_step_guard "Clear Management Cluster credential environment" "always() && ${dev_guard}"
+
+# cleanup step 很短且屬於 credential boundary，因此直接比對完整 step mapping。
+# 這同時固定 guard、working-directory、step-level shell／env 設定與 GITHUB_ENV
+# 寫入內容；純註解與空行不影響執行語意，會在比對前移除。
+cleanup_step="Clear Management Cluster credential environment"
+cleanup_step_line="^      - name: \"${cleanup_step}\"$"
+cleanup_hits="$(grep -c -- "${cleanup_step_line}" "${apply_stage}" || true)"
+[[ "${cleanup_hits}" == "1" ]] || \
+  fail "expected exactly one cleanup step named '${cleanup_step}', found ${cleanup_hits}"
+cleanup_start="$(grep -n -- "${cleanup_step_line}" "${apply_stage}" | cut -d: -f1)"
+
+# 從唯一的 name 行取到下一個 step；只移除純註解、空行與尾端空白，保留 YAML
+# 結構縮排，讓新增 shell／env 或改變 run block 都必須明確更新契約。
+cleanup_actual="$(awk -v start="${cleanup_start}" '
+  NR < start { next }
+  NR > start && /^      - / { exit }
+  { print }
+' "${apply_stage}")"
+cleanup_actual="$(printf '%s\n' "${cleanup_actual}" \
+  | sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' -e 's/[[:space:]]*$//')"
+
+cleanup_expected="$(cat <<'CLEANUP_EXPECTED'
+      - name: "Clear Management Cluster credential environment"
+        if: always() && inputs.environment == 'dev' && inputs.stage == 'install'
+        working-directory: ${{ github.workspace }}
+        run: |
+          {
+            echo "API_ENDPOINT="
+            echo "CA_CERT="
+            echo "TOKEN="
+          } >> "${GITHUB_ENV}"
+CLEANUP_EXPECTED
+)"
+if [[ "${cleanup_actual}" != "${cleanup_expected}" ]]; then
+  fail "$(printf 'cleanup step contract changed; update the golden contract deliberately if the change is intended.\n--- expected ---\n%s\n--- actual ---\n%s' \
+    "${cleanup_expected}" "${cleanup_actual}")"
+fi
 
 # 任何提及 escrow／admin password 的 step 都必須帶 dev-only guard，避免日後新增
 # step 時漏掉條件。
@@ -124,8 +160,18 @@ grep -Fq 'environment: prod' "${prod_workflow}" || \
 if grep -Fq 'environment: dev' "${prod_workflow}"; then
   fail "Prod workflow passes environment: dev to the apply stage"
 fi
-if grep -Eiq 'dev-admin-escrow' "${prod_workflow}"; then
-  fail "Prod workflow references the Dev admin escrow OIDC role"
+# escrow 權限已併入 deployment role，不再有獨立 selector。任何 active 檔案再出現
+# 它，就代表有人把獨立 role 加回來了。selector 名稱以字串串接組出，否則本檔案自己
+# 會被掃中；只掃 active files，不掃 git history。
+stale_prefix="dev-admin"
+stale_selector="${stale_prefix}-escrow"
+stale_hits="$(grep -rlI -e "${stale_selector}" \
+  "${repository_root}/config" \
+  "${repository_root}/.github" \
+  "${repository_root}/tests" \
+  "${repository_root}/AGENTS.md" 2>/dev/null || true)"
+if [[ -n "${stale_hits}" ]]; then
+  fail "the merged escrow selector reappeared in active files: $(printf '%s' "${stale_hits}" | tr '\n' ' ')"
 fi
 
 for prohibited in upload-artifact --overwrite 'set -x'; do

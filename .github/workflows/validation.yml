@@ -36,7 +36,6 @@ jobs:
             .schema_version == 1
             and (.aws.region | nonempty_string)
             and (.aws.oidc_roles.deployment | nonempty_string)
-            and (.aws.oidc_roles["dev-admin-escrow"] | nonempty_string)
             and (.aws.ssm_parameter_paths.linode_token | absolute_name)
           ' config/shared.json >/dev/null
 

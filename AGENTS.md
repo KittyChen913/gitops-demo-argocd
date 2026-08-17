@@ -24,7 +24,6 @@
 - `.github/actions/`：本地 composite action。
 - `.github/workflows/`：GitHub Actions workflow。
 - `scripts/`：CI 輔助腳本。
-- `docs/`：CI/CD 與設定文件。
 
 ## 註解撰寫規範
 
@@ -42,7 +41,7 @@
 ## Terraform 規則
 
 - 不得在 provider block 中寫死 AWS region，必須使用 `var.aws_region`。
-- 不得將 AWS region 儲存為 GitHub variable。Workflow 應沿用 `.github/actions/configure-aws-credentials` 的預設 OIDC region `ap-southeast-1`。
+- 不得將 AWS region 儲存為 GitHub variable，也不得在 workflow 或 composite action 寫死。GitHub Actions OIDC／AWS CLI 使用的 region 由 `config/shared.json` 的 `.aws.region` 提供；Terraform provider 與 backend region 仍由既有 variables／`backend.tf` 管理。
 - SSM path prefix、Management/Worker Cluster labels、Root Application metadata 與 private network 非機密設定必須定義於 `terraform/argocd/environments/<environment>.json`，不得在 Terraform root、GitHub Variables 或 workflow 重複寫死。
 - dev 與 prod 必須使用獨立的 environment config；修改 prod 設定不得觸發 dev apply。
 - Root Application 設定的 `name` 必須與對應 manifest 的 `metadata.name` 一致。
@@ -56,7 +55,12 @@
 
 - GitHub Actions 的 AWS 驗證只能使用 OIDC。
 - 不得使用、宣告或傳遞 `secrets.AWS_ACCESS_KEY_ID` 或 `secrets.AWS_SECRET_ACCESS_KEY`。
-- 必須透過 `.github/actions/configure-aws-credentials` 設定 AWS credentials；workflow 不得直接呼叫 `aws-actions/configure-aws-credentials`。
+- 必須透過 `.github/actions/configure-aws-credentials` 設定 AWS credentials；workflow 與其他 composite action 都不得直接呼叫 `aws-actions/configure-aws-credentials`。
+- 呼叫該 action 時**只傳語意 selector**：一般 job 用 `role: deployment`，Dev install 的 escrow step 用 `role: dev-admin-escrow`。不得傳 IAM Role 名稱或 ARN。`role-name` 與 `aws-region` 兩個舊 input 已移除。
+- IAM Role 名稱、GitHub Actions OIDC／AWS CLI 使用的 AWS region，以及 repo 層級的固定 SSM parameter name，字面值**只存在於 `config/shared.json`**；`.github/` 底下不得再出現 `github-oidc-` 開頭的字串或寫死的 region。Terraform provider 與 backend region 仍由既有 variables／`backend.tf` 管理。
+- 新增 Role 的正確做法是「在 `config/shared.json` 的 `.aws.oidc_roles` 加一個 key ＋ 呼叫端改傳新 selector」，action 邏輯不動。原本 action 內的 Bash 白名單已移除；讀取端必須驗證 selector 對應值是非空字串。
+- `config/shared.json` 的 `schema_version` 由讀取端以 `jq -e` 驗證，不符即 `exit 1`；改動契約檔結構時必須同步升版號與所有讀取端的期望值。
+- OIDC 憑證步驟的遮蔽範圍是固定契約：**帳號 ID 在寫入 `GITHUB_OUTPUT` 前先 `::add-mask::`，完整 Role ARN 一律不遮蔽**。Role 名稱不是機密，遮蔽它會讓 `AssumeRoleWithWebIdentity` 的失敗訊息無法判讀；帳號 ID 則另有 `mask-aws-account-id: true` 作為第二層。不得把整個 ARN 加回遮罩，也不得移除 action 內既有的 `::add-mask::${AWS_ACCOUNT_ID}`。
 - `AWS_ACCOUNT_ID` 必須儲存為 GitHub Repository Secret，並以 `secrets.AWS_ACCOUNT_ID` 引用。
 - GitHub Environment 只用於 dev/prod deployment protection 與 deployment history，不得保存 Terraform input、一般設定或 `AWS_ACCOUNT_ID`。
 - 需要 AWS 的 job 必須包含 `permissions: id-token: write` 與 `contents: read`。
@@ -73,8 +77,8 @@
 - 本repository不保留跨環境的緊急手動 override apply workflow。Dev 的手動補跑走 `terraform-apply-dev.yml` 的 `workflow_dispatch`；prod 只能透過 SemVer tag 觸發，不提供手動補跑入口。
 - 本repository不保留backend bootstrap workflow，也不建立、驗證或校正S3 State Bucket；bucket lifecycle與安全設定由repository外部owner負責。
 - Apply workflow 必須將部署分成依序執行的三個 Terraform job：安裝 ArgoCD、註冊 ArgoCD self-managed Application、註冊 ATeam Root Application。
-- `install`／`self-manage`／`ateam` 三個 ArgoCD Terraform job 各自使用自己獨立的 state（`terraform/argocd/<environment>/{install,self-manage,ateam}/`），透過 `_terraform-apply-stage.yml` 執行完整、不帶 `-target` 的 plan/apply；三者之間的順序由 workflow 的 `needs` 鏈保證，不使用 Terraform 跨 state 的 `depends_on`。`install` job 另對相同環境的 private-network state 執行完整、不帶 `-target` 的 plan/apply。
-- `terraform-destroy.yml` 僅 `workflow_dispatch` 觸發，透過 `_terraform-destroy-stage.yml` 對 `terraform/argocd/<environment>/{install,self-manage,ateam,private-network}/` 四個獨立 state 執行完整、不帶 `-target` 的 `terraform destroy`；stage 順序與 apply 完全相反（`ateam` → `self-manage` → `private-network` → `install`），由 workflow 的 `needs` 鏈保證。`install` 必須排在最後，因為 `argocd` namespace 由該 root 擁有。
+- `install`／`self-manage`／`ateam` 三個 ArgoCD Terraform job 各自使用自己獨立的 state（`terraform/argocd/<environment>/{install,self-manage,ateam}/`），透過 `terraform-apply-stage.yml` 執行完整、不帶 `-target` 的 plan/apply；三者之間的順序由 workflow 的 `needs` 鏈保證，不使用 Terraform 跨 state 的 `depends_on`。`install` job 另對相同環境的 private-network state 執行完整、不帶 `-target` 的 plan/apply。
+- `terraform-destroy.yml` 僅 `workflow_dispatch` 觸發，透過 `terraform-destroy-stage.yml` 對 `terraform/argocd/<environment>/{install,self-manage,ateam,private-network}/` 四個獨立 state 執行完整、不帶 `-target` 的 `terraform destroy`；stage 順序與 apply 完全相反（`ateam` → `self-manage` → `private-network` → `install`），由 workflow 的 `needs` 鏈保證。`install` 必須排在最後，因為 `argocd` namespace 由該 root 擁有。
 - 僅修改文件時，不應觸發部署 workflow。
 
 跨Repository從零部署順序固定為：Cluster foundation → OpenVPN／DNS → Cluster worker firewall convergence → ArgoCD → User Provisioning。
@@ -85,7 +89,7 @@
 - Plan、apply 與 destroy log 必須過濾包含 token、secret 或 password 賦值的行。
 - 若存在 `write_kubeconfig_files` 變數，CI 執行 Terraform 時必須設定 `TF_VAR_write_kubeconfig_files: "false"`。
 - Provider token 與叢集 credentials 必須存放於 AWS SSM Parameter Store，不得存放於 GitHub Secrets。
-- Workflow 需要取得共用 SSM provider token 時，必須使用 `.github/actions/get-ssm-parameters`。
+- Workflow 需要取得共用 SSM provider token 時，必須使用 `.github/actions/get-ssm-parameters`，並優先傳語意 selector（`name-selector: linode_token`）；只有執行期才決定的名稱或路徑才用 `ssm_param_name` / `ssm_param_path`。
 
 ## ArgoCD 與 GitOps
 
@@ -99,7 +103,7 @@
 
 - 不要主動執行 `terraform apply`／`terraform destroy`，或手動觸發 `terraform-apply-dev.yml`、`terraform-apply-prod.yml`、`terraform-apply.yml`、`terraform-destroy.yml` 等會改變雲端／ArgoCD 狀態的命令，除非使用者明確要求。
 - `terraform-destroy.yml` 僅 `workflow_dispatch` 觸發，destroy 選定環境 apply 建立的四個 root（`ateam`／`self-manage`／`private-network`／`install`，與 apply 完全相反的順序），依使用者要求不含任何額外確認步驟；如需移除已建立的 ArgoCD 或 private network 資源，仍須先與使用者確認範圍與方式，不得自行觸發此 workflow 或以其他等效手段執行 `terraform destroy`。
-- `private-network` root 不得再加回 `lifecycle.prevent_destroy`：該設定只接受 literal 值，無法以 variable 開關，加回會讓 `terraform-destroy.yml` 無法執行。Apply path 的刪除保護由 `terraform-plan.yml` 與 `_terraform-apply-stage.yml` 的「Reject … delete or replacement」plan guard 負責，修改這些 root 時不得移除該 guard。
+- `private-network` root 不得再加回 `lifecycle.prevent_destroy`：該設定只接受 literal 值，無法以 variable 開關，加回會讓 `terraform-destroy.yml` 無法執行。Apply path 的刪除保護由 `terraform-plan.yml` 與 `terraform-apply-stage.yml` 的「Reject … delete or replacement」plan guard 負責，修改這些 root 時不得移除該 guard。
 - Destroy `private-network` 會移除 `/gitops/<environment>/platform/argocd/ENDPOINT_IP` 與 `ENDPOINT_HOSTNAME` 這兩個供 `gitops-demo-openvpn-dns` 讀取的 contract parameters；該 root 同時讀取 OpenVPN／DNS 發布的 `INTERNAL_DOMAIN` 與 `VPN_PUBLIC_EGRESS_IP`。因此 teardown 順序必須與部署順序相反，ArgoCD 必須在 OpenVPN／DNS 之前 destroy。
 - 不要讀取、印出或提交 secret；若需確認 secret 是否存在，只回報存在與否。
 - 不要修改 Terraform state、遠端 S3 state 或 GitHub Environment protection 設定，除非使用者明確要求。
@@ -113,9 +117,9 @@
 
 ## 文件同步
 
-- 修改 workflow、trigger、SSM path、GitHub Environment 要求、backend 行為或手動命令時，必須同步更新 `docs/ci-cd.md`。
-- 修改必要 secret、variable、IAM permission 或 OIDC 設定時，必須同步更新 `docs/ci-secrets.md`。
-- README 中的範例必須與 `docs/ci-cd.md` 保持一致。
+- 修改 workflow、trigger、GitHub Environment 要求或手動命令時，必須同步更新 docs 站台的 [ArgoCD workflow](https://github.com/KittyChen913/gitops-demo-docs/blob/master/docs/CI%EF%BC%8FCD%20Workflow/argocd.md)；backend 行為與 state key 改變時另同步 [Terraform State](https://github.com/KittyChen913/gitops-demo-docs/blob/master/docs/s3-state.md)。
+- 修改必要 secret、variable、IAM permission 或 OIDC 設定時，必須依內容類型同步更新 docs 站台的對應頁——IAM Role、Trust Policy、Inline Policy 與 escrow Role 改 [OIDC IAM Role](https://github.com/KittyChen913/gitops-demo-docs/blob/master/docs/oidc-iam-role.md)；SSM parameter 清單改 [SSM Parameters](https://github.com/KittyChen913/gitops-demo-docs/blob/master/docs/variables.md)；GitHub Secret、Environment、Ruleset 與 PR Label 改 [快速開始](https://github.com/KittyChen913/gitops-demo-docs/blob/master/docs/Guides/quick-start.md)。
+- README 中的範例必須與 docs 站台的 [ArgoCD workflow](https://github.com/KittyChen913/gitops-demo-docs/blob/master/docs/CI%EF%BC%8FCD%20Workflow/argocd.md) 保持一致。
 - 分支相關的 workflow 設定、註解與文件都必須使用 `master`。
 
 ## 最小必要 Validation

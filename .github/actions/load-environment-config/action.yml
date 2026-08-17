@@ -1,5 +1,5 @@
 name: "Load Environment Config"
-description: "Loads validated ArgoCD environment settings from the repository"
+description: "Load and validate ArgoCD environment configuration from the repository."
 
 inputs:
   environment:

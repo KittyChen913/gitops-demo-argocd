@@ -153,10 +153,13 @@ run_case() {
   printf '%s' "${put_conflict_value}" >"${case_directory}/put-conflict-value"
   printf '%s' "${get_error}" >"${case_directory}/get-error"
 
+  # 子程序 stdout 會重導至一般檔案，不是 GitHub workflow command channel；
+  # 明確隔離 Runner 環境，避免 add-mask command 改變 state machine 測試語意。
   set +e
   PATH="${case_directory}/bin:${PATH}" \
     RUNNER_TEMP="${case_directory}/runner-temp" \
     KUBECONFIG="${case_directory}/kubeconfig" \
+    GITHUB_ACTIONS=false \
     ARGOCD_ADMIN_PASSWORD_PARAMETER_NAME="/gitops/dev/platform/argocd/ADMIN_PASSWORD" \
     ARGOCD_ADMIN_SECRET_POLL_ATTEMPTS=2 \
     ARGOCD_ADMIN_SECRET_POLL_INTERVAL_SECONDS=0 \

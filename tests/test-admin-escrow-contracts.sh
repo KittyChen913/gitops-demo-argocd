@@ -29,7 +29,7 @@ if grep -Eq 'argocd-rbac-cm|policy\.csv|role:(dev|prod)-(readonly|operator)' \
 fi
 for template in "${dev_template}" "${prod_template}"; do
   grep -Fq 'path: /data/url' "${template}" || fail "canonical URL patch is missing"
-  grep -Fq 'value: https://${argocd_internal_fqdn}' "${template}" || \
+  grep -Fq "value: https://\${argocd_internal_fqdn}" "${template}" || \
     fail "dynamic canonical URL placeholder is missing"
 done
 
@@ -40,7 +40,7 @@ jq -e '.admin_password_parameter_name == "/gitops/dev/platform/argocd/ADMIN_PASS
 jq -e 'has("admin_password_parameter_name") | not' \
   "${repository_root}/terraform/argocd/environments/prod.json" >/dev/null || \
   fail "Prod environment must not define an admin password parameter"
-grep -Fq 'admin_password_parameter=${ADMIN_PASSWORD_PARAMETER}' "${loader_action}" || \
+grep -Fq "admin_password_parameter=\${ADMIN_PASSWORD_PARAMETER}" "${loader_action}" || \
   fail "environment loader does not emit the non-secret Dev parameter path"
 
 # dev.json 是 canonical source，但 loader 與 escrow script 各自保有一份 allowlist
@@ -137,10 +137,10 @@ if grep -Eq '>>.*GITHUB_(ENV|OUTPUT|STEP_SUMMARY)' "${escrow_script}"; then
   fail "escrow script writes to a prohibited GitHub data channel"
 fi
 grep -Fq -- '--type SecureString' "${escrow_script}" || fail "SecureString type is missing"
-grep -Fq -- '--value "file://${admin_password_file}"' "${escrow_script}" || \
+grep -Fq -- "--value \"file://\${admin_password_file}\"" "${escrow_script}" || \
   fail "SSM value must be supplied through a restricted file"
 grep -Fq -- '::add-mask::%s' "${escrow_script}" || fail "GitHub mask command is missing"
-grep -Fq -- 'cmp -s "${admin_password_file}" "${ssm_value_file}"' "${escrow_script}" || \
+grep -Fq -- "cmp -s \"\${admin_password_file}\" \"\${ssm_value_file}\"" "${escrow_script}" || \
   fail "same-value confirmation is missing"
 
 echo "PASS: ArgoCD admin escrow static contracts"
